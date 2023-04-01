@@ -1,13 +1,13 @@
 import groovy.json.JsonSlurper
 
 class ApiScriptDSL {
-    public static RequestDSL delete(String url, Closure c) {return request(Method.DELETE, url, c)}
-    public static RequestDSL get(String url, Closure c) {return request(Method.GET, url, c)}
-    public static RequestDSL head(String url, Closure c) {return request(Method.HEAD, url, c)}
-    public static RequestDSL options(String url, Closure c) {return request(Method.OPTIONS, url, c)}
-    public static RequestDSL patch(String url, Closure c) {return request(Method.PATCH, url, c)}
-    public static RequestDSL post(String url, Closure c) {return request(Method.POST, url, c)}
-    public static RequestDSL put(String url, Closure c) {return request(Method.PUT, url, c)}
+    public static RequestDSL DELETE(String url, Closure c) {return request(Method.DELETE, url, c)}
+    public static RequestDSL GET(String url, Closure c) {return request(Method.GET, url, c)}
+    public static RequestDSL HEAD(String url, Closure c) {return request(Method.HEAD, url, c)}
+    public static RequestDSL OPTIONS(String url, Closure c) {return request(Method.OPTIONS, url, c)}
+    public static RequestDSL PATCH(String url, Closure c) {return request(Method.PATCH, url, c)}
+    public static RequestDSL POST(String url, Closure c) {return request(Method.POST, url, c)}
+    public static RequestDSL PUT(String url, Closure c) {return request(Method.PUT, url, c)}
 
     private static RequestDSL request(Method method,
                                       String url,
@@ -89,6 +89,10 @@ class RequestDSL {
 ${Utilities.headersToString(headers)}
 ${body}
 """
+    }
+
+    static Object propertyMissing(String name) {
+        return "${name}"
     }
 }
 
