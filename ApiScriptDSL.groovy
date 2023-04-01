@@ -1,3 +1,5 @@
+import groovy.json.JsonSlurper
+
 class ApiScriptDSL {
     public static RequestDSL delete(Closure c) {return request(Method.DELETE, c)}
     public static RequestDSL get(Closure c) {return request(Method.GET, c)}
@@ -18,7 +20,11 @@ class ApiScriptDSL {
     static void send(RequestDSL... requests) {
         requests.each {
             Response response = it.send()
-            println(response)
+            if (response.isJson()) {
+                println(response.toJson())
+            } else {
+                println(response)
+            }
         }
     }
 }
@@ -55,7 +61,6 @@ class RequestDSL {
     }
 
     Response send() {
-        println(this)
         def baseUrl = new URL(url + Utilities.paramsToString(params))
         def connection = baseUrl.openConnection()
         connection.requestMethod = method.toString()
@@ -66,8 +71,16 @@ class RequestDSL {
             connection.setDoOutput(true)
             connection.getOutputStream().write(body.getBytes("UTF-8"));
         }
+        Map<String, String> headers = [:]
+
+        connection.getHeaderFields().each {
+            if (it.key) {
+                headers[it.key.toLowerCase()] = it.value[0]
+            }
+        }
+
         return new Response(connection.responseCode,
-                            connection.getHeaderFields(),
+                            headers,
                             connection.getInputStream().getText())
     }
 
@@ -84,6 +97,7 @@ class Response {
     String body
     Integer statusCode
     final Map<String, String> headers = [:]
+    String contentType
 
     Response(Integer statusCode,
              Map<String, String> headers,
@@ -91,6 +105,18 @@ class Response {
         this.statusCode = statusCode
         this.headers = headers
         this.body = body
+        this.contentType = this.headers.'content-type'
+    }
+
+    Object toJson() {
+        if (body) {
+            return new JsonSlurper().parseText(body)
+        }
+        return null
+    }
+
+    boolean isJson() {
+        return contentType == "application/json"
     }
 
     @Override
@@ -104,10 +130,12 @@ Body: ${body}"""
 class HeaderDSL {
     String name
     RequestDSL request
+
     HeaderDSL(RequestDSL request, String name) {
         this.request = request
         this.name = name
     }
+
     void propertyMissing(String value) {
         request.headers[name] = value
     }
@@ -116,10 +144,12 @@ class HeaderDSL {
 class ParamDSL {
     String name
     RequestDSL request
+
     ParamDSL(RequestDSL request, String name) {
         this.request = request
         this.name = name
     }
+
     void propertyMissing(String value) {
         request.params << new Tuple2(name, value)
     }
