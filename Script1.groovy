@@ -1,7 +1,6 @@
 import static ApiScriptDSL.*
 
-var req1 = post {
-    url "http://httpbin.org/anything"
+var req1 = post  "http://httpbin.org/anything", {
     header "Accept" "application/json"
     header "Content-Type" "application/json"
     header "User-Agent" "links"
@@ -16,8 +15,7 @@ var req1 = post {
     '''
 }
 
-var req2 = get {
-    url "https://www.example.com"
+var req2 = get "https://www.example.com", {
     header "Accept" "application/json"
     param "cache-buster" "12345"
     body '''

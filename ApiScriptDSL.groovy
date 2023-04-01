@@ -1,16 +1,18 @@
 import groovy.json.JsonSlurper
 
 class ApiScriptDSL {
-    public static RequestDSL delete(Closure c) {return request(Method.DELETE, c)}
-    public static RequestDSL get(Closure c) {return request(Method.GET, c)}
-    public static RequestDSL head(Closure c) {return request(Method.HEAD, c)}
-    public static RequestDSL options(Closure c) {return request(Method.OPTIONS, c)}
-    public static RequestDSL patch(Closure c) {return request(Method.PATCH, c)}
-    public static RequestDSL post(Closure c) {return request(Method.POST, c)}
-    public static RequestDSL put(Closure c) {return request(Method.PUT, c)}
+    public static RequestDSL delete(String url, Closure c) {return request(Method.DELETE, url, c)}
+    public static RequestDSL get(String url, Closure c) {return request(Method.GET, url, c)}
+    public static RequestDSL head(String url, Closure c) {return request(Method.HEAD, url, c)}
+    public static RequestDSL options(String url, Closure c) {return request(Method.OPTIONS, url, c)}
+    public static RequestDSL patch(String url, Closure c) {return request(Method.PATCH, url, c)}
+    public static RequestDSL post(String url, Closure c) {return request(Method.POST, url, c)}
+    public static RequestDSL put(String url, Closure c) {return request(Method.PUT, url, c)}
 
-    private static RequestDSL request(Method method, Closure c) {
-        var dsl = new RequestDSL(method)
+    private static RequestDSL request(Method method,
+                                      String url,
+                                      Closure c) {
+        var dsl = new RequestDSL(method, url)
         c.delegate = dsl
         c.resolveStrategy = Closure.DELEGATE_ONLY
         c.call()
@@ -40,11 +42,8 @@ class RequestDSL {
     final List<Tuple2<String, String>> params = new ArrayList<>()
     private String body
 
-    RequestDSL(Method method) {
+    RequestDSL(Method method, String url) {
         this.method = method
-    }
-
-    void url(String url) {
         this.url = url
     }
 
