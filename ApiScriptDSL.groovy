@@ -523,7 +523,11 @@ class Utilities extends Style {
         var shift = lines.collect { line ->
                 line.toList().findIndexOf { it != ' ' }
                 }.findAll { it > 0 }.min()
-        lines.collect { it.length() > shift ? it[shift .. -1] : it }.join("\n")
+        if (shift) {
+            lines.collect { it.length() > shift ? it[shift .. -1] : it }.join("\n")
+        } else {
+            text
+        }
     }
 }
 
