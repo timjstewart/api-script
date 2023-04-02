@@ -5,7 +5,6 @@ enum Method {
     HEAD, GET, DELETE, POST, PUT, PATCH, OPTIONS
 }
 
-
 @TypeChecked
 class ApiScriptDSL {
     public static RequestDSL DELETE(String url, Closure c) {return request(Method.DELETE, url, c)}
@@ -32,7 +31,8 @@ class ApiScriptDSL {
             requiredValues += it[0].providers.keySet()
             it[0].requiredValues.each {
                 if (!(it in requiredValues)) {
-                    throw new ApiScriptException("'${it}' was not found in provided values ${requiredValues}")
+                    throw new ApiScriptException(
+                        "'${it}' was not found in provided values ${requiredValues}")
                 }
             }
         }
@@ -40,10 +40,11 @@ class ApiScriptDSL {
 
     static void send(RequestDSL... requests) {
         checkDependencies(requests)
-        var provider = new MultiRequestProvider()
+        var dictionary = new Dictionary()
         requests.each {
-            Response response = it.send(provider)
-            provider.addResponse(response)
+            Response response = it.send(dictionary)
+            println(response)
+            dictionary.addSource(new DictionarySource(it, response))
             println(response.statusCode)
         }
     }
@@ -52,10 +53,11 @@ class ApiScriptDSL {
 class RequestDSL {
     final Method method
     String url
-    final Map<String, String> headers = [:]
     final List<Tuple2<String, String>> params = new ArrayList<>()
+    final Map<String, String> headers = [:]
     private String body
-    Map<String, Provider> providers = [:]
+
+    Map<String, ValueLocator> providers = [:]
     List<String> requiredValues = []
 
     RequestDSL(Method method, String url) {
@@ -75,28 +77,36 @@ class RequestDSL {
         this.body = body
     }
 
-    Response send(Provider provider) {
-        def baseUrl = new URL(url + Utilities.paramsToString(params))
-        def connection = baseUrl.openConnection()
-        connection.requestMethod = method.toString()
+    Response send(Dictionary broker) {
+        def baseUrl = new URL(broker.interpolate(url + Utilities.paramsToString(params)))
+        def conn = baseUrl.openConnection()
+        conn.requestMethod = method.toString()
+
         headers.each {
-            connection.setRequestProperty(it.key, it.value)
+            conn.setRequestProperty(it.key, broker.interpolate(it.value))
         }
+
         if (body) {
-            connection.setDoOutput(true)
-            connection.getOutputStream().write(body.getBytes("UTF-8"));
+            conn.setDoOutput(true)
+            conn.getOutputStream().write(broker.interpolate(body).getBytes("UTF-8"));
         }
+
+        createResponse(conn)
+    }
+
+    private static Response createResponse(URLConnection conn) {
         Map<String, String> headers = [:]
 
-        connection.getHeaderFields().each {
+        conn.getHeaderFields().each {
             // The first line of the response is represented as a MapEntry with no key.
             if (it.key) {
                 headers[it.key.toLowerCase()] = it.value[0]
             }
         }
-        return new Response(connection.responseCode,
+
+        return new Response(conn.responseCode,
                             headers,
-                            connection.getInputStream().getText())
+                            conn.getInputStream().getText())
     }
 
     @Override
@@ -117,6 +127,10 @@ ${body}
 
     void requires(String name) {
         requiredValues << name
+    }
+
+    String provide(Response response, String valueName) {
+        providers[valueName].provide(response)
     }
 
     Object provides(String valueName) {
@@ -147,11 +161,11 @@ class ProviderDispatch {
         switch(sourceType) {
             case "header":
                 request.providers[valueName] =
-                    new HeaderSource(sourceSpec)
+                    new InHeader(sourceSpec)
                 break
             case "body":
                 request.providers[valueName] =
-                    new BodySource(sourceSpec)
+                    new InBody(sourceSpec)
                 break
             default:
                 throw new ApiScriptException(
@@ -160,38 +174,84 @@ class ProviderDispatch {
     }
 }
 
+class DictionarySource {
+    RequestDSL request
+    Response response
+
+    DictionarySource(RequestDSL request, Response response) {
+        this.request = request
+        this.response = response
+    }
+
+    String getValue(String valueName) {
+        var provider = request.providers[valueName]
+        if (provider) {
+            return provider.extractValue(response)
+        }
+    }
+
+    @Override
+    String toString() {
+        "${request.url} - ${request.providers.keySet()}"
+    }
+}
+
 /**
  * Provides a value from a Response (e.g. a header value,
  * JSON object, etc.)
  */
-@TypeChecked
-abstract class Provider {
-    Object provide(Response response) {
-        return null
+class Dictionary {
+    List<DictionarySource> sources = []
+
+    void addSource(DictionarySource source) {
+        sources << source
+    }
+
+    String getValue(String valueName) {
+        for (source in sources.reverse()) {
+            var value = source.getValue(valueName)
+            if (value) {
+                return value
+            }
+        }
+        throw new ApiScriptException("could not find value '${valueName}' in sources: ${sources.reverse()}")
+    }
+
+    String interpolate(String text) {
+        text.replaceAll(/\{\{([^}].*)\}\}/, {m ->
+            var valueName = m[1]
+            getValue(valueName)
+        })
     }
 }
 
-@TypeChecked
-class MultiRequestProvider extends Provider {
-    List<Response> responses = []
-    void addResponse(Response response) {
-        this.responses.add(response)
-    }
+abstract class ValueLocator {
+    abstract String extractValue(Response response)
 }
 
 @TypeChecked
-class HeaderSource extends Provider {
+class InHeader extends ValueLocator {
     String headerName
-    HeaderSource(String headerName) {
+    InHeader(String headerName) {
         this.headerName = headerName
     }
+
+    String extractValue(Response response) {
+        response.headers[headerName]
+    }
 }
 
 @TypeChecked
-class BodySource extends Provider {
+class InBody extends ValueLocator {
     String jsonPath
-    BodySource(String jsonPath) {
+    InBody(String jsonPath) {
         this.jsonPath = jsonPath
+    }
+
+    String extractValue(Response response) {
+        if (response.isJson()) {
+            var json = response.toJson()
+        }
     }
 }
 

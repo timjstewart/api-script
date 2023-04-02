@@ -13,13 +13,14 @@ var req1 = POST "http://httpbin.org/anything", {
       "text": "This is my blog."
     }
     '''
-    provides "token" from header "AuthToken" 
+    provides "host" from header "server"
 }
 
 var req2 = GET "https://httpbin.org/anything", {
     header Accept "application/json"
+    header token "{{host}}"
     param "cache-buster" 12345
-    requires "token"
+    requires "host"
 }
 
 send req1, req2
