@@ -1,5 +1,7 @@
+import java.util.regex.Pattern
 import groovy.json.JsonSlurper
 import groovy.transform.TypeChecked
+
 
 enum Method {
     HEAD, GET, DELETE, POST, PUT, PATCH, OPTIONS
@@ -26,26 +28,35 @@ class ApiScriptDSL {
     }
 
     private static void checkDependencies(RequestDSL[] requests) {
-        String[] requiredValues = []
+        var providedValues = new HashSet<String>()
+
         requests.collate(2, 1).each {
-            requiredValues += it[0].providers.keySet()
-            it[0].requiredValues.each {
-                if (!(it in requiredValues)) {
+            var providingRequest = it[0]
+            var requiringRequest = it[1]
+            if (!requiringRequest)
+               return
+
+            providedValues.addAll(providingRequest.providers.keySet())
+
+            requiringRequest.valueReferences().each {
+                if (!(it in providedValues)) {
                     throw new ApiScriptException(
-                        "'${it}' was not found in provided values ${requiredValues}")
+                        "'${it}' was not found in provided values ${providedValues}")
                 }
             }
         }
     }
 
     static void send(RequestDSL... requests) {
-        checkDependencies(requests)
-        var dictionary = new Dictionary()
-        requests.each {
-            Response response = it.send(dictionary)
-            println(response)
-            dictionary.addSource(new DictionarySource(it, response))
-            println(response.statusCode)
+        try {
+            checkDependencies(requests)
+            var dictionary = new Dictionary()
+            requests.each {
+                Response response = it.send(dictionary)
+                dictionary.addSource(new DictionarySource(it, response))
+            }
+        } catch (ApiScriptException ex) {
+            System.err.println("error: ${ex.getMessage()}")
         }
     }
 }
@@ -58,7 +69,6 @@ class RequestDSL {
     private String body
 
     Map<String, ValueLocator> providers = [:]
-    List<String> requiredValues = []
 
     RequestDSL(Method method, String url) {
         this.method = method
@@ -83,7 +93,7 @@ class RequestDSL {
         conn.requestMethod = method.toString()
 
         headers.each {
-            conn.setRequestProperty(it.key, broker.interpolate(it.value))
+            conn.setRequestProperty(it.key.toLowerCase(), broker.interpolate(it.value))
         }
 
         if (body) {
@@ -125,10 +135,6 @@ ${body}
         return name in providers
     }
 
-    void requires(String name) {
-        requiredValues << name
-    }
-
     String provide(Response response, String valueName) {
         providers[valueName].provide(response)
     }
@@ -137,6 +143,12 @@ ${body}
         [ from: { sourceType ->
             return new ProviderDispatch(this, valueName, sourceType)
         }]
+    }
+
+    Set<String> valueReferences() {
+        var refs = new HashSet<String>()
+        refs.addAll(Utilities.findValueReferences(url))
+        refs
     }
 }
 
@@ -163,9 +175,9 @@ class ProviderDispatch {
                 request.providers[valueName] =
                     new InHeader(sourceSpec)
                 break
-            case "body":
+            case "json":
                 request.providers[valueName] =
-                    new InBody(sourceSpec)
+                    new InJson(sourceSpec)
                 break
             default:
                 throw new ApiScriptException(
@@ -218,9 +230,11 @@ class Dictionary {
     }
 
     String interpolate(String text) {
-        text.replaceAll(/\{\{([^}].*)\}\}/, {m ->
+        Utilities.replaceValueReferences(text, {m ->
             var valueName = m[1]
-            getValue(valueName)
+            var value = getValue(valueName)
+            println("replacing '${valueName}' with '${value}'")
+            value
         })
     }
 }
@@ -242,15 +256,45 @@ class InHeader extends ValueLocator {
 }
 
 @TypeChecked
-class InBody extends ValueLocator {
+class InJson extends ValueLocator {
     String jsonPath
-    InBody(String jsonPath) {
+    InJson(String jsonPath) {
         this.jsonPath = jsonPath
     }
 
     String extractValue(Response response) {
         if (response.isJson()) {
-            var json = response.toJson()
+            try {
+                var json = response.toJson()
+                var path = jsonPath.split('\\.').toList()
+                extractJsonValue(path, json)
+            } catch (ApiScriptException ex) {
+                throw new ApiScriptException("could not find JSON value '${jsonPath}'.  ${ex.getMessage()}", ex)
+            }
+        } else {
+            throw new ApiScriptException("could not find JSON value '${jsonPath}' in non-JSON body: '${response.toString()}'")
+        }
+    }
+
+    private String extractJsonValue(List<String> path, Object json) {
+        if (path.isEmpty()) {
+            if (json instanceof String || json instanceof Float || json instanceof Boolean) {
+                return json.toString()
+            } else {
+                throw new ApiScriptException("found non-scalar at path '${json}'")
+            }
+        } else {
+            var head = path.head()
+            if (json instanceof Map) {
+                var obj = json as Map<String, Object>
+                if (head in obj) {
+                    extractJsonValue(path.tail(), obj[head]) 
+                } else {
+                    throw new ApiScriptException("key '${head}' not found in json: '${json}'")
+                }
+            } else {
+                throw new ApiScriptException("key '${head}' not found in non-object: '${json}'")
+            }
         }
     }
 }
@@ -322,6 +366,8 @@ class ParamDSL {
 
 @TypeChecked
 class Utilities {
+    final static Pattern VALUE_NAME_REGEX = ~/\{\{([^}].*)\}\}/
+
     static headersToString(Map<String, String> headers) {
         headers.collect {"${it.key}: ${it.value}"}.join("\n")
     }
@@ -329,11 +375,23 @@ class Utilities {
     static String paramsToString(List<Tuple2<String,String>> params) {
         "?" + params.collect {"${it.V1}=${it.V2}"}.join("&")
     }
+
+    static Set<String> findValueReferences(String text) {
+        text.findAll(VALUE_NAME_REGEX).toSet()
+    }
+
+    static String replaceValueReferences(String text, Closure c) {
+        text.replaceAll(VALUE_NAME_REGEX, c)
+    }
 }
 
 @TypeChecked
 class ApiScriptException extends Exception {
     ApiScriptException(String what) {
         super(what)
+    }
+
+    ApiScriptException(String what, Exception cause) {
+        super(what, cause)
     }
 }
