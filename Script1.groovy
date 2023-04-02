@@ -1,5 +1,3 @@
-import static ApiScriptDSL.*
-
 var req1 = POST "http://httpbin.org/anything", {
     header 'Accept' 'application/json'
     header 'Content-Type' 'application/json'
@@ -27,8 +25,12 @@ var req2 = GET "https://httpbin.org/anything", {
     param "cache-buster" 12345
 }
 
-var req3 = GET "https://httpbin.org/status/401"
+var req3 = GET "https://httpbin.org/status/401", {
+    header 'TEST' "{{host}}"
+}
 
-send req1, req2, req3
+send req1,
+    req2,
+    req3
 
 println("Done")
