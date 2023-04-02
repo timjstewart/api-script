@@ -27,6 +27,8 @@ var req2 = GET "https://httpbin.org/anything", {
     param "cache-buster" 12345
 }
 
-send req1, req2
+var req3 = GET "https://httpbin.org/status/400", {
+}
+send req1, req2, req3
 
 println("DONE")

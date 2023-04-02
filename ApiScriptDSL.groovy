@@ -2,12 +2,30 @@ import java.util.regex.Pattern
 import groovy.json.JsonSlurper
 import groovy.transform.TypeChecked
 
+@Grab(group="org.fusesource.jansi",
+      module="jansi",
+      version="2.4.0")
+
+import org.fusesource.jansi.AnsiConsole
+import org.fusesource.jansi.Ansi.Color
+import static org.fusesource.jansi.Ansi.*
+import static org.fusesource.jansi.Ansi.Color.*
+import java.net.http.HttpClient
+import java.net.http.HttpRequest
+import java.net.http.HttpResponse
+import java.time.Duration
+
 enum Method {
     HEAD, GET, DELETE, POST, PUT, PATCH, OPTIONS
 }
 
 @TypeChecked
 class ApiScriptDSL {
+    private static HttpClient httpClient =
+        HttpClient
+            .newBuilder()
+            .build()
+
     public static RequestDSL DELETE(String url, Closure c) {return request(Method.DELETE, url, c)}
     public static RequestDSL GET(String url, Closure c) {return request(Method.GET, url, c)}
     public static RequestDSL HEAD(String url, Closure c) {return request(Method.HEAD, url, c)}
@@ -19,6 +37,8 @@ class ApiScriptDSL {
     private static RequestDSL request(Method method,
                                       String url,
                                       Closure c) {
+
+        AnsiConsole.systemInstall()
         var dsl = new RequestDSL(method, url)
         c.delegate = dsl
         c.resolveStrategy = Closure.DELEGATE_ONLY
@@ -64,7 +84,21 @@ class ApiScriptDSL {
     }
 }
 
-class RequestDSL {
+class Style {
+    static void inColor(Color color, Closure c) {
+        print(ansi().fg(color))
+        c.call()
+        print(ansi().a(Attribute.RESET))
+    }
+
+    static void inBold(Closure c) {
+        print(ansi().a(Attribute.INTENSITY_BOLD))
+        c.call()
+        print(ansi().a(Attribute.RESET))
+    }
+}
+
+class RequestDSL extends Style {
     final Method method
     String url
     final List<Tuple2<String, String>> params = new ArrayList<>()
@@ -91,45 +125,60 @@ class RequestDSL {
     }
 
     Response send(Dictionary broker) {
-        def url = new URL(broker.interpolate(url + Utilities.paramsToString(params)))
-        println("${method} ${url}")
+        def url = broker.interpolate(url + Utilities.paramsToString(params))
+        inColor GREEN, {println("${method} ${url}")}
 
-        def conn = url.openConnection()
-        conn.requestMethod = method.toString()
+        try {
+            var builder = HttpRequest.newBuilder()
+                .uri(URI.create(url))
+                .timeout(Duration.ofMinutes(2))
 
-        headers.each {
-            var name = it.key.toLowerCase()
-            var value = broker.interpolate(it.value)
-            println("  ${name}: ${value}")
-            conn.setRequestProperty(name, value)
+            headers.each {
+                var name = it.key.toLowerCase()
+                var value = broker.interpolate(it.value)
+                inBold {println("  ${name}: ${value}")}
+                builder.header(name, value)
+            }
+
+            if (body) {
+                var actualBody = broker.interpolate(body)
+                println(actualBody)
+                builder.method(method.toString(),
+                               HttpRequest.BodyPublishers.ofString(body))
+            }
+            HttpRequest request = builder.build();
+            HttpResponse response = ApiScriptDSL.httpClient.send(request, HttpResponse.BodyHandlers.ofString())
+            createResponse(response)
+
+        } catch (IOException ex) {
+            println("I/O Error")
         }
-
-        if (body) {
-            conn.setDoOutput(true)
-            var actualBody = broker.interpolate(body)
-            println(actualBody)
-            conn.getOutputStream().write(actualBody.getBytes("UTF-8"));
-        }
-
-        createResponse(conn)
     }
 
-    private static Response createResponse(URLConnection conn) {
+    private static Response createResponse(HttpResponse response) {
         Map<String, String> headers = [:]
 
-        conn.getHeaderFields().each {
+        response.headers().map().each {
             // The first line of the response is represented as a MapEntry with no key.
             if (it.key) {
-                headers[it.key.toLowerCase()] = it.value[0]
+                headers[it.key] = it.value[0]
             }
         }
 
-        var result = new Response(conn.responseCode,
-                            headers,
-                            conn.getInputStream().getText())
-        println("Status: ${result.statusCode}")
-        result.headers.each {
-            println("  ${it.key}: ${it.value}")
+        var result = new Response(response.statusCode(),
+                                  headers,
+                                  response.body())
+
+        var succeeded = response.statusCode() in (200 .. 299) 
+
+        inColor succeeded ? GREEN : RED, {
+            println("Status: ${result.statusCode}")
+        }
+
+        inBold {
+            result.headers.each {
+                println("  ${it.key}: ${it.value}")
+            }
         }
         println(result.body);
         println()
@@ -204,10 +253,12 @@ class ProviderDispatch {
                 request.providers[valueName] =
                     new InHeader(sourceSpec)
                 break
+
             case "json":
                 request.providers[valueName] =
                     new InJson(sourceSpec)
                 break
+
             default:
                 throw new ApiScriptException(
                     "unknown source '${sourceType}'")
