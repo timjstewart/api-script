@@ -190,7 +190,7 @@ class RequestDSL extends Style {
                                   headers,
                                   response.body())
 
-        var succeeded = response.statusCode() in (200 .. 299) 
+        var succeeded = response.statusCode() in (200 .. 302) 
 
         inColor succeeded ? GREEN : RED, {
             println("⬇️ Status: ${result.statusCode}")
