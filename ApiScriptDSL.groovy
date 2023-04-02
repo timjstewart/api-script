@@ -35,8 +35,10 @@ class ApiScriptDSL {
 
     static void send(RequestDSL... requests) {
         checkDependencies(requests)
+        var provider = new CompositeProvider()
         requests.each {
-            Response response = it.send()
+            Response response = it.send(provider)
+            provider.addResponse(response)
             println(response.statusCode)
         }
     }
@@ -72,7 +74,7 @@ class RequestDSL {
         this.body = body
     }
 
-    Response send() {
+    Response send(Provider provider) {
         def baseUrl = new URL(url + Utilities.paramsToString(params))
         def connection = baseUrl.openConnection()
         connection.requestMethod = method.toString()
@@ -86,8 +88,7 @@ class RequestDSL {
         Map<String, String> headers = [:]
 
         connection.getHeaderFields().each {
-            // The first line of the response is represented as
-            // a map entry with no key.
+            // The first line of the response is represented as a MapEntry with no key.
             if (it.key) {
                 headers[it.key.toLowerCase()] = it.value[0]
             }
@@ -164,6 +165,13 @@ class ProviderDispatch {
 abstract class Provider {
     Object provide(Response response) {
         return null
+    }
+}
+
+class CompositeProvider extends Provider {
+    List<Response> responses = []
+    void addResponse(Response response) {
+        this.responses.add(response)
     }
 }
 
