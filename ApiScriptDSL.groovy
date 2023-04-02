@@ -86,7 +86,7 @@ class RequestDSL {
         Map<String, String> headers = [:]
 
         connection.getHeaderFields().each {
-            // The first line of the response is treated like
+            // The first line of the response is represented as
             // a map entry with no key.
             if (it.key) {
                 headers[it.key.toLowerCase()] = it.value[0]
@@ -132,7 +132,9 @@ class ProviderDispatch {
     String valueName
     String sourceType
 
-    ProviderDispatch(RequestDSL request, String valueName, String sourceType) {
+    ProviderDispatch(RequestDSL request,
+                     String valueName,
+                     String sourceType) {
         this.request = request
         this.valueName = valueName
         this.sourceType = sourceType
@@ -141,13 +143,16 @@ class ProviderDispatch {
     void propertyMissing(String sourceSpec) {
         switch(sourceType) {
             case "header":
-                request.providers[valueName] = new HeaderSource(sourceSpec)
+                request.providers[valueName] =
+                    new HeaderSource(sourceSpec)
                 break
             case "body":
-                request.providers[valueName] = new BodySource(sourceSpec)
+                request.providers[valueName] =
+                    new BodySource(sourceSpec)
                 break
             default:
-                throw new ApiScriptException("unknown source '${sourceType}'")
+                throw new ApiScriptException(
+                    "unknown source '${sourceType}'")
         }
     }
 }
