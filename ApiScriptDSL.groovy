@@ -1,52 +1,55 @@
-import java.util.regex.Pattern
-import groovy.json.JsonSlurper
-import groovy.transform.TypeChecked
-
 @Grab(group="org.fusesource.jansi",
       module="jansi",
       version="2.4.0")
+
+import java.net.http.HttpClient
+import java.net.http.HttpRequest
+import java.net.http.HttpResponse
+import java.time.Duration
+import java.util.regex.Pattern
+
+import groovy.json.JsonSlurper
+import groovy.transform.TypeChecked
 
 import org.fusesource.jansi.AnsiConsole
 import org.fusesource.jansi.Ansi.Color
 import static org.fusesource.jansi.Ansi.*
 import static org.fusesource.jansi.Ansi.Color.*
-import java.net.http.HttpClient
-import java.net.http.HttpRequest
-import java.net.http.HttpResponse
-import java.time.Duration
 
 enum Method {
     HEAD, GET, DELETE, POST, PUT, PATCH, OPTIONS
 }
 
 @TypeChecked
-class ApiScriptDSL {
-    private static HttpClient httpClient =
-        HttpClient
-            .newBuilder()
-            .build()
+class ApiScriptDSL extends Style {
+    private static HttpClient httpClient = HttpClient .newBuilder() .build()
 
-    public static RequestDSL DELETE(String url, Closure c) {return request(Method.DELETE, url, c)}
-    public static RequestDSL GET(String url, Closure c) {return request(Method.GET, url, c)}
-    public static RequestDSL HEAD(String url, Closure c) {return request(Method.HEAD, url, c)}
-    public static RequestDSL OPTIONS(String url, Closure c) {return request(Method.OPTIONS, url, c)}
-    public static RequestDSL PATCH(String url, Closure c) {return request(Method.PATCH, url, c)}
-    public static RequestDSL POST(String url, Closure c) {return request(Method.POST, url, c)}
-    public static RequestDSL PUT(String url, Closure c) {return request(Method.PUT, url, c)}
+    public static RequestDSL DELETE(String url, Closure c = null) {return request(Method.DELETE, url, c)}
+    public static RequestDSL GET(String url, Closure c = null) {return request(Method.GET, url, c)}
+    public static RequestDSL HEAD(String url, Closure c = null) {return request(Method.HEAD, url, c)}
+    public static RequestDSL OPTIONS(String url, Closure c = null) {return request(Method.OPTIONS, url, c)}
+    public static RequestDSL PATCH(String url, Closure c = null) {return request(Method.PATCH, url, c)}
+    public static RequestDSL POST(String url, Closure c = null) {return request(Method.POST, url, c)}
+    public static RequestDSL PUT(String url, Closure c = null) {return request(Method.PUT, url, c)}
 
     private static RequestDSL request(Method method,
                                       String url,
                                       Closure c) {
 
-        AnsiConsole.systemInstall()
+        initTerminal()
         var dsl = new RequestDSL(method, url)
-        c.delegate = dsl
-        c.resolveStrategy = Closure.DELEGATE_ONLY
         try {
-            c.call()
+            if (c) {
+                c.delegate = dsl
+                c.resolveStrategy = Closure.DELEGATE_ONLY
+                c.call()
+            }
             return dsl
         } catch (SyntaxError | EvaluationError ex) {
-            System.err.println(ex.getMessage())
+            inColor YELLOW, {
+                println(ex.getMessage())
+                System.exit(0)
+            }
         }
     }
 
@@ -77,10 +80,16 @@ class ApiScriptDSL {
             requests.each {
                 Response response = it.send(dictionary)
                 dictionary.addSource(new DictionarySource(it, response))
+                println()
             }
         } catch (ApiScriptException ex) {
             System.err.println("error: ${ex.getMessage()}")
         }
+    }
+
+    private static void initTerminal() {
+        AnsiConsole.systemInstall()
+        print(ansi().a(Attribute.RESET))
     }
 }
 
@@ -93,6 +102,12 @@ class Style {
 
     static void inBold(Closure c) {
         print(ansi().a(Attribute.INTENSITY_BOLD))
+        c.call()
+        print(ansi().a(Attribute.RESET))
+    }
+
+    static void inThin(Closure c) {
+        print(ansi().a(Attribute.INTENSITY_FAINT))
         c.call()
         print(ansi().a(Attribute.RESET))
     }
@@ -124,35 +139,41 @@ class RequestDSL extends Style {
         this.body = body
     }
 
-    Response send(Dictionary broker) {
-        def url = broker.interpolate(url + Utilities.paramsToString(params))
-        inColor GREEN, {println("${method} ${url}")}
+    Response send(Dictionary dictionary) {
+        def url = dictionary.interpolate(url + Utilities.paramsToString(params))
+        inColor GREEN, {println("⬆️ ${method} ${url}")}
 
         try {
-            var builder = HttpRequest.newBuilder()
-                .uri(URI.create(url))
-                .timeout(Duration.ofMinutes(2))
-
-            headers.each {
-                var name = it.key.toLowerCase()
-                var value = broker.interpolate(it.value)
-                inBold {println("  ${name}: ${value}")}
-                builder.header(name, value)
+            HttpRequest request = buildRequest(dictionary);
+            Utilities.timed "Response Latency", {
+                HttpResponse response = ApiScriptDSL.httpClient.send(request, HttpResponse.BodyHandlers.ofString())
+                createResponse(response)
             }
-
-            if (body) {
-                var actualBody = broker.interpolate(body)
-                println(actualBody)
-                builder.method(method.toString(),
-                               HttpRequest.BodyPublishers.ofString(body))
-            }
-            HttpRequest request = builder.build();
-            HttpResponse response = ApiScriptDSL.httpClient.send(request, HttpResponse.BodyHandlers.ofString())
-            createResponse(response)
-
         } catch (IOException ex) {
             println("I/O Error")
         }
+    }
+
+    private HttpRequest buildRequest(Dictionary dictionary) {
+        var builder = HttpRequest.newBuilder()
+            .uri(URI.create(url))
+            .timeout(Duration.ofMinutes(2))
+
+        headers.each {
+            var name = it.key.toLowerCase()
+            var value = dictionary.interpolate(it.value)
+            inBold {println("  ${name}: ${value}")}
+            builder.header(name, value)
+        }
+
+        if (body) {
+            var actualBody = dictionary.interpolate(body)
+            inThin {println(actualBody) }
+            builder.method(method.toString(),
+                           HttpRequest.BodyPublishers.ofString(body))
+        }
+
+        return builder.build()
     }
 
     private static Response createResponse(HttpResponse response) {
@@ -172,7 +193,7 @@ class RequestDSL extends Style {
         var succeeded = response.statusCode() in (200 .. 299) 
 
         inColor succeeded ? GREEN : RED, {
-            println("Status: ${result.statusCode}")
+            println("⬇️ Status: ${result.statusCode}")
         }
 
         inBold {
@@ -180,9 +201,8 @@ class RequestDSL extends Style {
                 println("  ${it.key}: ${it.value}")
             }
         }
-        println(result.body);
         println()
-
+        println(result.body);
         result
     }
 
@@ -453,7 +473,7 @@ class ParamDSL extends BaseDSL {
 }
 
 @TypeChecked
-class Utilities {
+class Utilities extends Style {
     final static Pattern VALUE_NAME_REGEX = ~/\{\{([^}]*)\}\}/
 
     static headersToString(Map<String, String> headers) {
@@ -461,7 +481,8 @@ class Utilities {
     }
 
     static String paramsToString(List<Tuple2<String,String>> params) {
-        "?" + params.collect {"${it.V1}=${it.V2}"}.join("&")
+        var result = params.collect {"${it.V1}=${it.V2}"}.join("&")
+        result ? "?" + result : ""
     }
 
     static Set<String> findValueReferences(String text) {
@@ -485,6 +506,16 @@ class Utilities {
             println("Environment variable '${name}' found.")
             value
         }
+    }
+
+    static Object timed(String operation, Closure c) {
+        def startTime = new Date().getTime()
+        var result = c.call()
+        def stopTime = new Date().getTime()
+        inColor(BLUE) {
+            println("⏱: ${operation}: ${stopTime - startTime} milliseconds")
+        }
+        result
     }
 }
 
