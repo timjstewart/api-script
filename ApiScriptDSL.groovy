@@ -168,7 +168,7 @@ class RequestDSL extends Style {
 
         if (body) {
             var actualBody = dictionary.interpolate(body)
-            inThin {println(actualBody) }
+            inThin {println(Utilities.leftJustify(actualBody)) }
             builder.method(method.toString(),
                            HttpRequest.BodyPublishers.ofString(body))
         }
@@ -516,6 +516,14 @@ class Utilities extends Style {
             println("⏱: ${operation}: ${stopTime - startTime} milliseconds")
         }
         result
+    }
+
+    static String leftJustify(String text) {
+        var lines = text.split("\n")
+        var shift = lines.collect { line ->
+                line.toList().findIndexOf { it != ' ' }
+                }.findAll { it > 0 }.min()
+        lines.collect { it.length() > shift ? it[shift .. -1] : it }.join("\n")
     }
 }
 
