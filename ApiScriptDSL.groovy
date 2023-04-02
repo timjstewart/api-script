@@ -1,6 +1,11 @@
 import groovy.json.JsonSlurper
 import groovy.transform.TypeChecked
 
+enum Method {
+    HEAD, GET, DELETE, POST, PUT, PATCH, OPTIONS
+}
+
+
 @TypeChecked
 class ApiScriptDSL {
     public static RequestDSL DELETE(String url, Closure c) {return request(Method.DELETE, url, c)}
@@ -35,17 +40,13 @@ class ApiScriptDSL {
 
     static void send(RequestDSL... requests) {
         checkDependencies(requests)
-        var provider = new CompositeProvider()
+        var provider = new MultiRequestProvider()
         requests.each {
             Response response = it.send(provider)
             provider.addResponse(response)
             println(response.statusCode)
         }
     }
-}
-
-enum Method {
-    HEAD, GET, DELETE, POST, PUT, PATCH, OPTIONS
 }
 
 class RequestDSL {
@@ -128,6 +129,7 @@ ${body}
 /**
  * Selects the correct Provider based on the provider type
  */
+@TypeChecked
 class ProviderDispatch {
     RequestDSL request
     String valueName
@@ -162,19 +164,22 @@ class ProviderDispatch {
  * Provides a value from a Response (e.g. a header value,
  * JSON object, etc.)
  */
+@TypeChecked
 abstract class Provider {
     Object provide(Response response) {
         return null
     }
 }
 
-class CompositeProvider extends Provider {
+@TypeChecked
+class MultiRequestProvider extends Provider {
     List<Response> responses = []
     void addResponse(Response response) {
         this.responses.add(response)
     }
 }
 
+@TypeChecked
 class HeaderSource extends Provider {
     String headerName
     HeaderSource(String headerName) {
@@ -182,6 +187,7 @@ class HeaderSource extends Provider {
     }
 }
 
+@TypeChecked
 class BodySource extends Provider {
     String jsonPath
     BodySource(String jsonPath) {
@@ -189,6 +195,7 @@ class BodySource extends Provider {
     }
 }
 
+@TypeChecked
 class Response {
     String body
     Integer statusCode
@@ -223,6 +230,7 @@ Body: ${body}"""
     }
 }
 
+@TypeChecked
 class HeaderDSL {
     String name
     RequestDSL request
@@ -237,6 +245,7 @@ class HeaderDSL {
     }
 }
 
+@TypeChecked
 class ParamDSL {
     String name
     RequestDSL request
@@ -251,6 +260,7 @@ class ParamDSL {
     }
 }
 
+@TypeChecked
 class Utilities {
     static headersToString(Map<String, String> headers) {
         headers.collect {"${it.key}: ${it.value}"}.join("\n")
@@ -261,6 +271,7 @@ class Utilities {
     }
 }
 
+@TypeChecked
 class ApiScriptException extends Exception {
     ApiScriptException(String what) {
         super(what)
