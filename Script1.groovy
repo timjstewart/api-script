@@ -1,11 +1,13 @@
 import static ApiScriptDSL.*
 
 var req1 = POST "http://httpbin.org/anything", {
-    header Accept 'application/json'
+    header 'Accept' 'application/json'
     header 'Content-Type' 'application/json'
+    header 'SECRET' env("SECRET_TOKEN", "SEcR3t")
     header 'User-Agent' links
-    param order slug
-    param limit 3
+    param 'order' slug
+    param 'limit' 3
+    param 'user' env("USER", "anonymous")
     body '''
     {
       "title": "My Blog",
@@ -14,13 +16,14 @@ var req1 = POST "http://httpbin.org/anything", {
     }
     '''
     provides "host" from header "server";
+    provides "host" from header "server";
     provides "verb" from json "method";
     provides "trace-id" from json "headers.X-Amzn-Trace-Id";
 }
 
 var req2 = GET "https://httpbin.org/anything", {
-    header Accept "application/json"
-    header token "{{verb}} {{host}} {{trace-id}}"
+    header 'Accept' "application/json"
+    header 'token' "{{verb}} {{host}} {{trace-id}}"
     param "cache-buster" 12345
 }
 

@@ -22,8 +22,12 @@ class ApiScriptDSL {
         var dsl = new RequestDSL(method, url)
         c.delegate = dsl
         c.resolveStrategy = Closure.DELEGATE_ONLY
-        c.call()
-        return dsl
+        try {
+            c.call()
+            return dsl
+        } catch (SyntaxError | EvaluationError ex) {
+            System.err.println(ex.getMessage())
+        }
     }
 
     private static void checkDependencies(RequestDSL[] requests) {
@@ -141,8 +145,9 @@ ${body}
 """
     }
 
-    static Object propertyMissing(String name) {
-        return "${name}"
+    Object methodMissing(String name, Object args) {
+        throw new SyntaxError(
+            "unexpected '${name}' while defining request.")
     }
 
     boolean canProvide(String name) {
@@ -154,9 +159,19 @@ ${body}
     }
 
     Object provides(String valueName) {
-        [ from: { sourceType ->
-            return new ProviderDispatch(this, valueName, sourceType)
-        }]
+        final RequestDSL request = this
+        return new HashMap<String, Object>() {
+            Object from(String sourceType) {
+                return new ProviderDispatch(
+                    request, valueName, sourceType)
+            }
+        }
+    }
+
+    static Object propertyMissing(String name) {
+        if (name in ["header", "json"])
+            return "${name}"
+        throw new SyntaxError("Unexpected '${name}'")
     }
 
     Set<String> valueReferences() {
@@ -346,8 +361,14 @@ Body: ${body}"""
     }
 }
 
+class BaseDSL {
+    String env(String envVarName, String defaultValue = null) {
+        Utilities.getEnvVar(envVarName, defaultValue)
+    }
+}
+
 @TypeChecked
-class HeaderDSL {
+class HeaderDSL extends BaseDSL {
     String name
     RequestDSL request
 
@@ -359,10 +380,14 @@ class HeaderDSL {
     void propertyMissing(String value) {
         request.headers[name] = value
     }
+
+    Object methodMissing(String name, Object args) {
+        throw new SyntaxError("Unexepcted '${name}' while defining header")
+    }
 }
 
 @TypeChecked
-class ParamDSL {
+class ParamDSL extends BaseDSL {
     String name
     RequestDSL request
 
@@ -395,6 +420,21 @@ class Utilities {
     static String replaceValueReferences(String text, Closure c) {
         text.replaceAll(VALUE_NAME_REGEX, c)
     }
+
+    static String getEnvVar(String name, String defaultValue) {
+        String value = System.getenv(name)
+        if (!value) {
+            if (defaultValue) {
+                println("Environment variable '${name}' not set.  Using default value.")
+                return defaultValue
+            } else {
+                throw new EvaluationError("Environment Variable '${name}' not set.")
+            }
+        } else {
+            println("Environment variable '${name}' found.")
+            value
+        }
+    }
 }
 
 @TypeChecked
@@ -405,5 +445,17 @@ class ApiScriptException extends Exception {
 
     ApiScriptException(String what, Exception cause) {
         super(what, cause)
+    }
+}
+
+class SyntaxError extends ApiScriptException {
+    SyntaxError(String what) {
+        super(what)
+    }
+}
+
+class EvaluationError extends ApiScriptException {
+    EvaluationError(String what) {
+        super(what)
     }
 }
