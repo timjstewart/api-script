@@ -14,12 +14,13 @@ var req1 = POST "http://httpbin.org/anything", {
     }
     '''
     provides "host" from header "server";
-    provides "verb" from json "method.foo";
+    provides "verb" from json "method";
+    provides "trace-id" from json "headers.X-Amzn-Trace-Id";
 }
 
 var req2 = GET "https://httpbin.org/anything", {
     header Accept "application/json"
-    header token "{{verb}}"
+    header token "{{verb}} {{host}} {{trace-id}}"
     param "cache-buster" 12345
 }
 

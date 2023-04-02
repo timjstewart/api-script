@@ -2,7 +2,6 @@ import java.util.regex.Pattern
 import groovy.json.JsonSlurper
 import groovy.transform.TypeChecked
 
-
 enum Method {
     HEAD, GET, DELETE, POST, PUT, PATCH, OPTIONS
 }
@@ -41,7 +40,7 @@ class ApiScriptDSL {
             requiringRequest.valueReferences().each {
                 if (!(it in providedValues)) {
                     throw new ApiScriptException(
-                        "'${it}' was not found in provided values ${providedValues}")
+                        "'${it}' was not found in provided values: ${providedValues.join(', ')}")
                 }
             }
         }
@@ -88,17 +87,24 @@ class RequestDSL {
     }
 
     Response send(Dictionary broker) {
-        def baseUrl = new URL(broker.interpolate(url + Utilities.paramsToString(params)))
-        def conn = baseUrl.openConnection()
+        def url = new URL(broker.interpolate(url + Utilities.paramsToString(params)))
+        println("${method} ${url}")
+
+        def conn = url.openConnection()
         conn.requestMethod = method.toString()
 
         headers.each {
-            conn.setRequestProperty(it.key.toLowerCase(), broker.interpolate(it.value))
+            var name = it.key.toLowerCase()
+            var value = broker.interpolate(it.value)
+            println("  ${name}: ${value}")
+            conn.setRequestProperty(name, value)
         }
 
         if (body) {
             conn.setDoOutput(true)
-            conn.getOutputStream().write(broker.interpolate(body).getBytes("UTF-8"));
+            var actualBody = broker.interpolate(body)
+            println(actualBody)
+            conn.getOutputStream().write(actualBody.getBytes("UTF-8"));
         }
 
         createResponse(conn)
@@ -114,9 +120,17 @@ class RequestDSL {
             }
         }
 
-        return new Response(conn.responseCode,
+        var result = new Response(conn.responseCode,
                             headers,
                             conn.getInputStream().getText())
+        println("Status: ${result.statusCode}")
+        result.headers.each {
+            println("  ${it.key}: ${it.value}")
+        }
+        println(result.body);
+        println()
+
+        result
     }
 
     @Override
@@ -232,9 +246,7 @@ class Dictionary {
     String interpolate(String text) {
         Utilities.replaceValueReferences(text, {m ->
             var valueName = m[1]
-            var value = getValue(valueName)
-            println("replacing '${valueName}' with '${value}'")
-            value
+            getValue(valueName)
         })
     }
 }
@@ -366,7 +378,7 @@ class ParamDSL {
 
 @TypeChecked
 class Utilities {
-    final static Pattern VALUE_NAME_REGEX = ~/\{\{([^}].*)\}\}/
+    final static Pattern VALUE_NAME_REGEX = ~/\{\{([^}]*)\}\}/
 
     static headersToString(Map<String, String> headers) {
         headers.collect {"${it.key}: ${it.value}"}.join("\n")
