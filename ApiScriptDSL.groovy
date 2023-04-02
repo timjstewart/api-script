@@ -1,5 +1,7 @@
 import groovy.json.JsonSlurper
+import groovy.transform.TypeChecked
 
+@TypeChecked
 class ApiScriptDSL {
     public static RequestDSL DELETE(String url, Closure c) {return request(Method.DELETE, url, c)}
     public static RequestDSL GET(String url, Closure c) {return request(Method.GET, url, c)}
@@ -19,14 +21,23 @@ class ApiScriptDSL {
         return dsl
     }
 
+    private static void checkDependencies(RequestDSL[] requests) {
+        String[] requiredValues = []
+        requests.collate(2, 1).each {
+            requiredValues += it[0].providers.keySet()
+            it[0].requiredValues.each {
+                if (!(it in requiredValues)) {
+                    throw new ApiScriptException("'${it}' was not found in provided values ${requiredValues}")
+                }
+            }
+        }
+    }
+
     static void send(RequestDSL... requests) {
+        checkDependencies(requests)
         requests.each {
             Response response = it.send()
-            if (response.isJson()) {
-                println(response.toJson())
-            } else {
-                println(response)
-            }
+            println(response.statusCode)
         }
     }
 }
@@ -41,6 +52,8 @@ class RequestDSL {
     final Map<String, String> headers = [:]
     final List<Tuple2<String, String>> params = new ArrayList<>()
     private String body
+    Map<String, Provider> providers = [:]
+    List<String> requiredValues = []
 
     RequestDSL(Method method, String url) {
         this.method = method
@@ -73,11 +86,12 @@ class RequestDSL {
         Map<String, String> headers = [:]
 
         connection.getHeaderFields().each {
+            // The first line of the response is treated like
+            // a map entry with no key.
             if (it.key) {
                 headers[it.key.toLowerCase()] = it.value[0]
             }
         }
-
         return new Response(connection.responseCode,
                             headers,
                             connection.getInputStream().getText())
@@ -93,6 +107,72 @@ ${body}
 
     static Object propertyMissing(String name) {
         return "${name}"
+    }
+
+    boolean canProvide(String name) {
+        return name in providers
+    }
+
+    void requires(String name) {
+        requiredValues << name
+    }
+
+    Object provides(String valueName) {
+        [ from: { sourceType ->
+            return new ProviderDispatch(this, valueName, sourceType)
+        }]
+    }
+}
+
+/**
+ * Selects the correct Provider based on the provider type
+ */
+class ProviderDispatch {
+    RequestDSL request
+    String valueName
+    String sourceType
+
+    ProviderDispatch(RequestDSL request, String valueName, String sourceType) {
+        this.request = request
+        this.valueName = valueName
+        this.sourceType = sourceType
+    }
+
+    void propertyMissing(String sourceSpec) {
+        switch(sourceType) {
+            case "header":
+                request.providers[valueName] = new HeaderSource(sourceSpec)
+                break
+            case "body":
+                request.providers[valueName] = new BodySource(sourceSpec)
+                break
+            default:
+                throw new ApiScriptException("unknown source '${sourceType}'")
+        }
+    }
+}
+
+/**
+ * Provides a value from a Response (e.g. a header value,
+ * JSON object, etc.)
+ */
+abstract class Provider {
+    Object provide(Response response) {
+        return null
+    }
+}
+
+class HeaderSource extends Provider {
+    String headerName
+    HeaderSource(String headerName) {
+        this.headerName = headerName
+    }
+}
+
+class BodySource extends Provider {
+    String jsonPath
+    BodySource(String jsonPath) {
+        this.jsonPath = jsonPath
     }
 }
 
@@ -165,5 +245,11 @@ class Utilities {
 
     static String paramsToString(List<Tuple2<String,String>> params) {
         "?" + params.collect {"${it.V1}=${it.V2}"}.join("&")
+    }
+}
+
+class ApiScriptException extends Exception {
+    ApiScriptException(String what) {
+        super(what)
     }
 }
