@@ -141,7 +141,7 @@ class RequestDSL extends Style {
 
     Response send(Dictionary dictionary) {
         def url = dictionary.interpolate(url + Utilities.paramsToString(params))
-        inColor GREEN, {println("⬆️ ${method} ${url}")}
+        inColor GREEN, {println(" ${method} ${url}")}
 
         try {
             HttpRequest request = buildRequest(dictionary);
@@ -166,12 +166,14 @@ class RequestDSL extends Style {
             builder.header(name, value)
         }
 
+        var actualBody = ""
         if (body) {
-            var actualBody = dictionary.interpolate(body)
+            actualBody = dictionary.interpolate(body)
             inThin {println(Utilities.leftJustify(actualBody)) }
-            builder.method(method.toString(),
-                           HttpRequest.BodyPublishers.ofString(body))
         }
+
+        builder.method(method.toString(),
+                       HttpRequest.BodyPublishers.ofString(actualBody))
 
         return builder.build()
     }
@@ -193,7 +195,7 @@ class RequestDSL extends Style {
         var succeeded = response.statusCode() in (200 .. 302) 
 
         inColor succeeded ? GREEN : RED, {
-            println("⬇️ Status: ${result.statusCode}")
+            println("Status: ${result.statusCode}")
         }
 
         inBold {
@@ -230,17 +232,22 @@ ${body}
     Object provides(String valueName) {
         final RequestDSL request = this
         return new HashMap<String, Object>() {
-            Object from(String sourceType) {
-                return new ProviderDispatch(
-                    request, valueName, sourceType)
+            Object from(Object sourceType) {
+                if (sourceType == 'responseBody') {
+                    request.providers[valueName] = new InBody()
+                } else {
+                    return new ProviderDispatch(
+                        request, valueName, sourceType)
+                }
             }
         }
     }
 
     static Object propertyMissing(String name) {
-        if (name in ["header", "json"])
+        // List of places where values can be retrieved from
+        if (name in ["header", "json", "responseBody"])
             return "${name}"
-        throw new SyntaxError("Unexpected '${name}'")
+        throw new SyntaxError("Unexpected source '${name}'")
     }
 
     Set<String> valueReferences() {
@@ -339,6 +346,13 @@ class Dictionary {
 
 abstract class ValueLocator {
     abstract String extractValue(Response response)
+}
+
+@TypeChecked
+class InBody extends ValueLocator {
+    String extractValue(Response response) {
+        response.body
+    }
 }
 
 @TypeChecked
