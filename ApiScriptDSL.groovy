@@ -7,6 +7,8 @@ import java.net.http.HttpRequest
 import java.net.http.HttpResponse
 import java.time.Duration
 import java.util.regex.Pattern
+import java.net.URLEncoder
+
 
 import groovy.json.JsonSlurper
 import groovy.transform.TypeChecked
@@ -141,11 +143,11 @@ class RequestDSL extends Style {
 
     Response send(Dictionary dictionary) {
         def url = dictionary.interpolate(url + Utilities.paramsToString(params))
-        inColor GREEN, {println(" ${method} ${url}")}
+        inColor GREEN, {println("${method} ${url}")}
 
         try {
             HttpRequest request = buildRequest(dictionary);
-            Utilities.timed "Response Latency", {
+            Utilities.timed "\nResponse Latency", {
                 HttpResponse response = ApiScriptDSL.httpClient.send(request, HttpResponse.BodyHandlers.ofString())
                 createResponse(response)
             }
@@ -155,8 +157,9 @@ class RequestDSL extends Style {
     }
 
     private HttpRequest buildRequest(Dictionary dictionary) {
+        var fullUrl = "${url}${Utilities.paramsToString(params)}"
         var builder = HttpRequest.newBuilder()
-            .uri(URI.create(url))
+            .uri(URI.create(fullUrl))
             .timeout(Duration.ofMinutes(2))
 
         headers.each {
@@ -495,7 +498,10 @@ class Utilities extends Style {
     }
 
     static String paramsToString(List<Tuple2<String,String>> params) {
-        var result = params.collect {"${it.V1}=${it.V2}"}.join("&")
+        var result = params.collect {
+            var encoded = java.net.URLEncoder.encode(it.V2, "UTF-8")
+            "${it.V1}=${encoded}"
+        }.join("&")
         result ? "?" + result : ""
     }
 
@@ -527,7 +533,7 @@ class Utilities extends Style {
         var result = c.call()
         def stopTime = new Date().getTime()
         inColor(BLUE) {
-            println("⏱: ${operation}: ${stopTime - startTime} milliseconds")
+            println("${operation}: ${stopTime - startTime} milliseconds")
         }
         result
     }

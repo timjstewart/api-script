@@ -25,12 +25,14 @@ var req2 = GET "https://httpbin.org/anything", {
     param "cache-buster" 12345
 }
 
-var req3 = GET "https://httpbin.org/status/401", {
-    header 'TEST' "{{host}}"
+var req3 = GET "https://httpbin.org/anything", {
+    provides "error" from responseBody
 }
 
-send req1,
-    req2,
-    req3
+var req4 = POST "https://httpbin.org/status/401", {
+    body "{{error}}"
+}
+
+send /*req1, req2,*/ req3, req4
 
 println("Done")
