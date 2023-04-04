@@ -31,6 +31,7 @@ trait BaseDSL {
 @TypeChecked
 class ApiScriptDSL implements Style {
     static Map<String, List<RequestDSL>> groups = [:]
+    static ConfigDSL _config = new ConfigDSL()
 
     private static HttpClient httpClient = HttpClient .newBuilder() .build()
 
@@ -42,12 +43,13 @@ class ApiScriptDSL implements Style {
     public static RequestDSL POST(String url, Closure c = null) {return request(Method.POST, url, c)}
     public static RequestDSL PUT(String url, Closure c = null) {return request(Method.PUT, url, c)}
 
-    private static RequestDSL request(Method method,
-                                      String url,
-                                      Closure c) {
+    private static RequestDSL request(
+        Method method,
+        String url,
+        @DelegatesTo(RequestDSL) Closure c) {
 
         initTerminal()
-        var dsl = new RequestDSL(method, url)
+        var dsl = new RequestDSL(_config, method, url)
         try {
             if (c) {
                 c.delegate = dsl
@@ -56,10 +58,7 @@ class ApiScriptDSL implements Style {
             }
             return dsl
         } catch (SyntaxError | EvaluationError ex) {
-            inColor YELLOW, {
-                println(ex.getMessage())
-                System.exit(0)
-            }
+            Utilities.fatalError(ex.getMessage())
         }
     }
 
@@ -67,10 +66,7 @@ class ApiScriptDSL implements Style {
         try {
             Utilities.getEnvVar(envVarName, defaultValue)
         } catch (ApiScriptException ex) {
-            inColor RED, {
-                println("Error: ${ex.getMessage()}")
-            }
-            System.exit(1)
+            Utilities.fatalError(ex.getMessage())
         }
     }
 
@@ -115,13 +111,62 @@ class ApiScriptDSL implements Style {
                 println()
             }
         } catch (ApiScriptException ex) {
-            System.err.println("error: ${ex.getMessage()}")
+            Utilities.fatalError(ex.getMessage())
         }
     }
 
     private static void initTerminal() {
         AnsiConsole.systemInstall()
         print(ansi().a(Attribute.RESET))
+    }
+
+    static void config(@DelegatesTo(ConfigDSL) Closure c) {
+        c.delegate = _config
+        c.resolveStrategy = Closure.DELEGATE_ONLY
+        c.call()
+    }
+}
+
+class ConfigDSL {
+    boolean _printRequestHeaders = true
+    boolean _printResponseHeaders = true
+    boolean _printRequestBody = true
+    boolean _printResponseBody = true
+
+    Object methodMissing(String name, Object args) {
+        Utilities.fatalError("Config does not have a setting named '${name}'.")
+    }
+
+    void printRequestHeaders(boolean flag) {
+        _printRequestHeaders = flag
+    }
+
+    void printResponseHeaders(boolean flag) {
+        _printResponseHeaders = flag
+    }
+
+    void printRequestBody(boolean flag) {
+        _printRequestBody = flag
+    }
+
+    void printResponseBody(boolean flag) {
+        _printResponseBody = flag
+    }
+
+    boolean printRequestHeaders() {
+        _printRequestHeaders
+    }
+
+    boolean printResponseHeaders() {
+        _printResponseHeaders
+    }
+
+    boolean printRequestBody() {
+        _printRequestBody
+    }
+
+    boolean printResponseBody() {
+        _printResponseBody
     }
 }
 
@@ -151,10 +196,12 @@ class RequestDSL implements Style {
     final List<Tuple2<String, String>> params = new ArrayList<>()
     final Map<String, String> headers = new TreeMap<>(String.CASE_INSENSITIVE_ORDER)
     private String body
+    private ConfigDSL config
 
     Map<String, ValueLocator> providers = [:]
 
-    RequestDSL(Method method, String url) {
+    RequestDSL(ConfigDSL config, Method method, String url) {
+        this.config = config
         this.method = method
         this.url = url
     }
@@ -173,14 +220,16 @@ class RequestDSL implements Style {
 
     Response sendRequest(Dictionary dictionary) {
         def url = dictionary.interpolate(url + Utilities.paramsToString(params))
-        inColor GREEN, {println("${method} ${url}")}
+
+        inColor GREEN, {println(">>> ${method} ${url}")}
 
         try {
             HttpRequest request = buildRequest(dictionary);
+            HttpResponse response = null
             Utilities.timed "\nResponse Latency", {
-                HttpResponse response = ApiScriptDSL.httpClient.send(request, HttpResponse.BodyHandlers.ofString())
-                createResponse(response)
+                response = ApiScriptDSL.httpClient.send(request, HttpResponse.BodyHandlers.ofString())
             }
+            createResponse(response)
         } catch (IOException ex) {
             println("I/O Error")
         }
@@ -195,7 +244,9 @@ class RequestDSL implements Style {
         headers.each {
             var name = it.key
             var value = dictionary.interpolate(it.value)
-            inBold {println("  ${name}: ${value}")}
+            if (config.printRequestHeaders()) {
+                inBold {println("  ${name}: ${value}")}
+            }
             builder.header(name, value)
         }
 
@@ -203,12 +254,14 @@ class RequestDSL implements Style {
 
         if (body) {
             actualBody = dictionary.interpolate(body)
-            inThin {
-                println()
-                println(Utilities
-                        .formatBodyText(actualBody,
-                                        headers['content-type']))
-                println()
+            if (config.printRequestBody()) {
+                inThin {
+                    println()
+                    println(Utilities
+                            .formatBodyText(actualBody,
+                                            headers['content-type']))
+                    println()
+                }
             }
         }
 
@@ -218,7 +271,7 @@ class RequestDSL implements Style {
         return builder.build()
     }
 
-    private static Response createResponse(HttpResponse response) {
+    private Response createResponse(HttpResponse response) {
         Map<String, String> headers = [:]
 
         response.headers().map().each {
@@ -235,18 +288,24 @@ class RequestDSL implements Style {
         var succeeded = response.statusCode() in (200 .. 302) 
 
         inColor succeeded ? GREEN : RED, {
-            println("Status: ${result.statusCode}")
+            println("<<< Status: ${result.statusCode}")
         }
 
-        inBold {
-            result.headers.each {
-                println("  ${it.key}: ${it.value}")
+        if (config.printResponseHeaders()) {
+            inBold {
+                result.headers.each {
+                    println("  ${it.key}: ${it.value}")
+                }
+            }
+            println()
+        }
+
+        if (config.printResponseBody()) {
+            inThin {
+                println(result.formattedBody())
             }
         }
-        println()
-        inThin {
-            println(result.formattedBody())
-        }
+
         result
     }
 
@@ -375,7 +434,8 @@ class Dictionary {
                 return value
             }
         }
-        throw new ApiScriptException("could not find value '${valueName}' in sources: ${sources.reverse()}")
+        throw new ApiScriptException("""Value dependency check failed.
+Could not find value '${valueName}' in sources: ${sources.reverse()}""")
     }
 
     String interpolate(String text) {
@@ -599,6 +659,19 @@ class Utilities implements Style {
         } else {
             text
         }
+    }
+
+    static void fatalError(Exception ex) {
+        fatalError(ex.getMessage())
+    }
+
+    static void fatalError(String error) {
+        inColor RED, {
+            println(error)
+        }
+        println(ansi().a(Attribute.RESET))
+        AnsiConsole.systemUninstall()
+        System.exit(1)
     }
 }
 
