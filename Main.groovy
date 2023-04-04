@@ -19,6 +19,11 @@ ${text}
 
 run "${groupName}"
 """.trim()
+        try {
         shell.parse(script, scriptFileName).run()
+        } catch (MissingMethodException ex) {
+            println("""Error in command '${ex.method}', Command arguments: '${ex.arguments}'.
+Either the command does not exist or it is being called with incorrect arguments.""")
+        }
     }
 }

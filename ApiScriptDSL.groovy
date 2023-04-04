@@ -9,7 +9,6 @@ import java.time.Duration
 import java.util.regex.Pattern
 import java.net.URLEncoder
 
-
 import groovy.json.JsonSlurper
 import groovy.json.JsonOutput
 import groovy.transform.TypeChecked
@@ -18,7 +17,6 @@ import org.fusesource.jansi.AnsiConsole
 import org.fusesource.jansi.Ansi.Color
 import static org.fusesource.jansi.Ansi.*
 import static org.fusesource.jansi.Ansi.Color.*
-
 
 enum Method {
     HEAD, GET, DELETE, POST, PUT, PATCH, OPTIONS
