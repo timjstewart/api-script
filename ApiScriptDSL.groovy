@@ -25,7 +25,7 @@ enum Method {
 }
 
 @TypeChecked
-class ApiScriptDSL extends Style {
+class ApiScriptDSL implements Style {
     private static HttpClient httpClient = HttpClient .newBuilder() .build()
 
     public static RequestDSL DELETE(String url, Closure c = null) {return request(Method.DELETE, url, c)}
@@ -98,7 +98,7 @@ class ApiScriptDSL extends Style {
     }
 }
 
-class Style {
+trait Style {
     static void inColor(Color color, Closure c) {
         print(ansi().fg(color))
         c.call()
@@ -118,7 +118,7 @@ class Style {
     }
 }
 
-class RequestDSL extends Style {
+class RequestDSL implements Style {
     final Method method
     String url
     final List<Tuple2<String, String>> params = new ArrayList<>()
@@ -506,7 +506,7 @@ class ParamDSL extends BaseDSL {
 }
 
 @TypeChecked
-class Utilities extends Style {
+class Utilities implements Style {
     final static Pattern VALUE_NAME_REGEX = ~/\{\{([^}]*)\}\}/
 
     static headersToString(Map<String, String> headers) {
