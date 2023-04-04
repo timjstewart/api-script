@@ -24,8 +24,16 @@ enum Method {
     HEAD, GET, DELETE, POST, PUT, PATCH, OPTIONS
 }
 
+trait BaseDSL {
+    static String env(String envVarName, String defaultValue = null) {
+        Utilities.getEnvVar(envVarName, defaultValue)
+    }
+}
+
 @TypeChecked
 class ApiScriptDSL implements Style {
+    static Map<String, List<RequestDSL>> groups = [:]
+
     private static HttpClient httpClient = HttpClient .newBuilder() .build()
 
     public static RequestDSL DELETE(String url, Closure c = null) {return request(Method.DELETE, url, c)}
@@ -57,7 +65,18 @@ class ApiScriptDSL implements Style {
         }
     }
 
-    private static void checkDependencies(RequestDSL[] requests) {
+    static String env(String envVarName, String defaultValue = null) {
+        try {
+            Utilities.getEnvVar(envVarName, defaultValue)
+        } catch (ApiScriptException ex) {
+            inColor RED, {
+                println("Error: ${ex.getMessage()}")
+            }
+            System.exit(1)
+        }
+    }
+
+    private static void checkDependencies(List<RequestDSL> requests) {
         var providedValues = new HashSet<String>()
 
         requests.collate(2, 1).each {
@@ -78,7 +97,17 @@ class ApiScriptDSL implements Style {
         }
     }
 
-    static void send(RequestDSL... requests) {
+    static void group(String name, List<RequestDSL> requests) {
+        groups[name] = requests
+    }
+
+    static void run(String groupName) {
+        if (groupName in groups) {
+            send(groups[groupName])
+        }
+    }
+
+    static void send(List<RequestDSL> requests) {
         try {
             checkDependencies(requests)
             var dictionary = new Dictionary()
@@ -465,14 +494,9 @@ Body: ${body}"""
     }
 }
 
-class BaseDSL {
-    String env(String envVarName, String defaultValue = null) {
-        Utilities.getEnvVar(envVarName, defaultValue)
-    }
-}
 
 @TypeChecked
-class HeaderDSL extends BaseDSL {
+class HeaderDSL implements BaseDSL {
     String name
     RequestDSL request
 
@@ -491,7 +515,7 @@ class HeaderDSL extends BaseDSL {
 }
 
 @TypeChecked
-class ParamDSL extends BaseDSL {
+class ParamDSL implements BaseDSL {
     String name
     RequestDSL request
 

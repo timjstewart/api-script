@@ -1,3 +1,5 @@
+var token = env("SECRET_TOKEN", "2S3cre74Me!")
+
 var req1 = POST "http://httpbin.org/anything", {
     header 'Accept' 'application/json'
     header 'Content-Type' 'application/json'
@@ -35,6 +37,5 @@ var req4 = POST "https://httpbin.org/status/401", {
     body "{{error}}"
 }
 
-send /*req1, req2,*/ req3, req4
-
-println("Done")
+group "Group 1", [ req1, req2 ]
+group "Group 2", [ req1, req3 ]
