@@ -11,12 +11,14 @@ import java.net.URLEncoder
 
 
 import groovy.json.JsonSlurper
+import groovy.json.JsonOutput
 import groovy.transform.TypeChecked
 
 import org.fusesource.jansi.AnsiConsole
 import org.fusesource.jansi.Ansi.Color
 import static org.fusesource.jansi.Ansi.*
 import static org.fusesource.jansi.Ansi.Color.*
+
 
 enum Method {
     HEAD, GET, DELETE, POST, PUT, PATCH, OPTIONS
@@ -61,6 +63,7 @@ class ApiScriptDSL extends Style {
         requests.collate(2, 1).each {
             var providingRequest = it[0]
             var requiringRequest = it[1]
+
             if (!requiringRequest)
                return
 
@@ -80,7 +83,7 @@ class ApiScriptDSL extends Style {
             checkDependencies(requests)
             var dictionary = new Dictionary()
             requests.each {
-                Response response = it.send(dictionary)
+                Response response = it.sendRequest(dictionary)
                 dictionary.addSource(new DictionarySource(it, response))
                 println()
             }
@@ -119,7 +122,7 @@ class RequestDSL extends Style {
     final Method method
     String url
     final List<Tuple2<String, String>> params = new ArrayList<>()
-    final Map<String, String> headers = [:]
+    final Map<String, String> headers = new TreeMap<>(String.CASE_INSENSITIVE_ORDER)
     private String body
 
     Map<String, ValueLocator> providers = [:]
@@ -141,7 +144,7 @@ class RequestDSL extends Style {
         this.body = body
     }
 
-    Response send(Dictionary dictionary) {
+    Response sendRequest(Dictionary dictionary) {
         def url = dictionary.interpolate(url + Utilities.paramsToString(params))
         inColor GREEN, {println("${method} ${url}")}
 
@@ -163,16 +166,23 @@ class RequestDSL extends Style {
             .timeout(Duration.ofMinutes(2))
 
         headers.each {
-            var name = it.key.toLowerCase()
+            var name = it.key
             var value = dictionary.interpolate(it.value)
             inBold {println("  ${name}: ${value}")}
             builder.header(name, value)
         }
 
         var actualBody = ""
+
         if (body) {
             actualBody = dictionary.interpolate(body)
-            inThin {println(Utilities.leftJustify(actualBody)) }
+            inThin {
+                println()
+                println(Utilities
+                        .formatBodyText(actualBody,
+                                        headers['content-type']))
+                println()
+            }
         }
 
         builder.method(method.toString(),
@@ -207,7 +217,9 @@ class RequestDSL extends Style {
             }
         }
         println()
-        println(result.body);
+        inThin {
+            println(result.formattedBody())
+        }
         result
     }
 
@@ -418,7 +430,7 @@ class InJson extends ValueLocator {
 class Response {
     String body
     Integer statusCode
-    final Map<String, String> headers = [:]
+    final Map<String, String> headers = new TreeMap<>(String.CASE_INSENSITIVE_ORDER)
     String contentType
 
     Response(Integer statusCode,
@@ -439,6 +451,10 @@ class Response {
 
     boolean isJson() {
         return contentType == "application/json"
+    }
+
+    String formattedBody() {
+        Utilities.formatBodyText(body, headers["content-type"])
     }
 
     @Override
@@ -538,11 +554,24 @@ class Utilities extends Style {
         result
     }
 
+    static formatBodyText(String text, String contentType = null) {
+        if (contentType) {
+            if (contentType.toLowerCase().startsWith("application/json")) {
+                // You have a strange sense of pretty, JsonOutput.
+                return JsonOutput.prettyPrint(text)
+                    .split("\n")
+                    .findAll { it.trim().length() > 0 }
+                    .join("\n")
+            }
+        }
+        return leftJustify(text)
+    }
+
     static String leftJustify(String text) {
         var lines = text.split("\n")
         var shift = lines.collect { line ->
-                line.toList().findIndexOf { it != ' ' }
-                }.findAll { it > 0 }.min()
+            line.toList().findIndexOf { it != ' ' }
+        }.findAll { it > 0 }.min()
         if (shift) {
             lines.collect { it.length() > shift ? it[shift .. -1] : it }.join("\n")
         } else {
@@ -562,12 +591,14 @@ class ApiScriptException extends Exception {
     }
 }
 
+@TypeChecked
 class SyntaxError extends ApiScriptException {
     SyntaxError(String what) {
         super(what)
     }
 }
 
+@TypeChecked
 class EvaluationError extends ApiScriptException {
     EvaluationError(String what) {
         super(what)
