@@ -5,64 +5,100 @@
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
+import java.net.URLEncoder
 import java.time.Duration
 import java.util.regex.Pattern
-import java.net.URLEncoder
 
-import groovy.json.JsonSlurper
 import groovy.json.JsonOutput
+import groovy.json.JsonSlurper
 import groovy.transform.TypeChecked
 
-import org.fusesource.jansi.AnsiConsole
 import org.fusesource.jansi.Ansi.Color
+import org.fusesource.jansi.AnsiConsole
 import static org.fusesource.jansi.Ansi.*
 import static org.fusesource.jansi.Ansi.Color.*
 
 enum Method {
-    HEAD, GET, DELETE, POST, PUT, PATCH, OPTIONS
+    HEAD,
+    GET,
+    DELETE,
+    POST,
+    PUT,
+    PATCH,
+    OPTIONS
 }
 
-trait BaseDSL {
-    static String env(String envVarName, String defaultValue = null) {
-        Utilities.getEnvVar(envVarName, defaultValue)
+@TypeChecked
+class ApiScript {
+    static void script(@DelegatesTo(Statements) Closure c) {
+        Terminal.init()
+
+        var args = getArguments()
+
+        var statements = new Statements()
+        c.delegate = statements
+        c.resolveStrategy = Closure.DELEGATE_ONLY
+        c.call()
+
+        if (args.length == 0) {
+            statements.printAvailableGroups()
+        } else {
+            var groupName = args[0]
+            if (groupName in statements.groups) {
+                statements.run(groupName)
+            } else {
+                println("Unknown group '${groupName}'")
+                statements.printAvailableGroups()
+            }
+        }
+
+        Terminal.close()
+    }
+
+    private static String[] getArguments() {
+        ProcessHandle.current().info().arguments()
+            .orElse([] as String[]).toList()
+            .dropWhile{!it.endsWith(".groovy")}
+            .drop(1)
     }
 }
 
 @TypeChecked
-class ApiScriptDSL implements Style {
-    static Map<String, List<RequestDSL>> groups = [:]
-    static ConfigDSL _config = new ConfigDSL()
+class Terminal {
+    static void init() {
+        AnsiConsole.systemInstall()
+        print(ansi().a(Attribute.RESET))
+    }
 
-    private static HttpClient httpClient = HttpClient .newBuilder() .build()
+    static void close() {
+        AnsiConsole.systemUninstall()
+        print(ansi().a(Attribute.RESET))
+    }
+}
 
-    public static RequestDSL DELETE(String url, Closure c = null) {return request(Method.DELETE, url, c)}
-    public static RequestDSL GET(String url, Closure c = null) {return request(Method.GET, url, c)}
-    public static RequestDSL HEAD(String url, Closure c = null) {return request(Method.HEAD, url, c)}
-    public static RequestDSL OPTIONS(String url, Closure c = null) {return request(Method.OPTIONS, url, c)}
-    public static RequestDSL PATCH(String url, Closure c = null) {return request(Method.PATCH, url, c)}
-    public static RequestDSL POST(String url, Closure c = null) {return request(Method.POST, url, c)}
-    public static RequestDSL PUT(String url, Closure c = null) {return request(Method.PUT, url, c)}
+@TypeChecked
+class Statements implements HasStyle {
+    private static HttpClient httpClient = HttpClient.newBuilder() .build()
 
-    private static RequestDSL request(
-        Method method,
-        String url,
-        @DelegatesTo(RequestDSL) Closure c) {
+    private Map<String, List<RequestDSL>> groups = [:]
+    private ConfigDSL _config = new ConfigDSL()
 
-        initTerminal()
-        var dsl = new RequestDSL(_config, method, url)
-        try {
-            if (c) {
-                c.delegate = dsl
-                c.resolveStrategy = Closure.DELEGATE_ONLY
-                c.call()
-            }
-            return dsl
-        } catch (SyntaxError | EvaluationError ex) {
-            Utilities.fatalError(ex.getMessage())
+    RequestDSL DELETE(String url, Closure c = null) {return request(Method.DELETE, url, c)}
+    RequestDSL GET(String url, Closure c = null) {return request(Method.GET, url, c)}
+    RequestDSL HEAD(String url, Closure c = null) {return request(Method.HEAD, url, c)}
+    RequestDSL OPTIONS(String url, Closure c = null) {return request(Method.OPTIONS, url, c)}
+    RequestDSL PATCH(String url, Closure c = null) {return request(Method.PATCH, url, c)}
+    RequestDSL POST(String url, Closure c = null) {return request(Method.POST, url, c)}
+    RequestDSL PUT(String url, Closure c = null) {return request(Method.PUT, url, c)}
+
+    void printAvailableGroups() {
+        println("Available groups:")
+        groups.keySet().each {
+            println(" - ${it}")
         }
     }
 
-    static String env(String envVarName, String defaultValue = null) {
+    String env(String envVarName, String defaultValue = null) {
         try {
             Utilities.getEnvVar(envVarName, defaultValue)
         } catch (ApiScriptException ex) {
@@ -70,38 +106,17 @@ class ApiScriptDSL implements Style {
         }
     }
 
-    private static void checkDependencies(List<RequestDSL> requests) {
-        var providedValues = new HashSet<String>()
-
-        requests.collate(2, 1).each {
-            var providingRequest = it[0]
-            var requiringRequest = it[1]
-
-            if (!requiringRequest)
-               return
-
-            providedValues.addAll(providingRequest.providers.keySet())
-
-            requiringRequest.valueReferences().each {
-                if (!(it in providedValues)) {
-                    throw new ApiScriptException(
-                        "'${it}' was not found in provided values: ${providedValues.join(', ')}")
-                }
-            }
-        }
-    }
-
-    static void group(String name, List<RequestDSL> requests) {
+    void group(String name, List<RequestDSL> requests) {
         groups[name] = requests
     }
 
-    static void run(String groupName) {
+    void run(String groupName) {
         if (groupName in groups) {
             send(groups[groupName])
         }
     }
 
-    static void send(List<RequestDSL> requests) {
+    void send(List<RequestDSL> requests) {
         try {
             checkDependencies(requests)
             var dictionary = new Dictionary()
@@ -115,15 +130,48 @@ class ApiScriptDSL implements Style {
         }
     }
 
-    private static void initTerminal() {
-        AnsiConsole.systemInstall()
-        print(ansi().a(Attribute.RESET))
-    }
-
-    static void config(@DelegatesTo(ConfigDSL) Closure c) {
+    void config(@DelegatesTo(ConfigDSL) Closure c) {
         c.delegate = _config
         c.resolveStrategy = Closure.DELEGATE_ONLY
         c.call()
+    }
+
+    static void checkDependencies(List<RequestDSL> requests) {
+        var providedValues = new HashSet<String>()
+
+        requests.collate(2, 1).each {
+            var providingRequest = it[0]
+            var requiringRequest = it[1]
+
+            if (!requiringRequest)
+                return
+
+            providedValues.addAll(providingRequest.providers.keySet())
+
+            requiringRequest.valueReferences().each {
+                if (!(it in providedValues)) {
+                    throw new ApiScriptException(
+                        "'${it}' was not found in provided values: ${providedValues.join(', ')}")
+                }
+            }
+        }
+    }
+
+    private RequestDSL request(
+        Method method,
+        String url,
+        @DelegatesTo(RequestDSL) Closure c) {
+        var dsl = new RequestDSL(_config, method, url)
+        try {
+            if (c) {
+                c.delegate = dsl
+                c.resolveStrategy = Closure.DELEGATE_ONLY
+                c.call()
+            }
+            return dsl
+        } catch (SyntaxError | EvaluationError ex) {
+            Utilities.fatalError(ex.getMessage())
+        }
     }
 }
 
@@ -170,7 +218,7 @@ class ConfigDSL {
     }
 }
 
-trait Style {
+trait HasStyle {
     static void inColor(Color color, Closure c) {
         print(ansi().fg(color))
         c.call()
@@ -183,22 +231,23 @@ trait Style {
         print(ansi().a(Attribute.RESET))
     }
 
-    static void inThin(Closure c) {
+    static void inSubtle(Closure c) {
         print(ansi().a(Attribute.INTENSITY_FAINT))
         c.call()
         print(ansi().a(Attribute.RESET))
     }
 }
 
-class RequestDSL implements Style {
-    final Method method
-    String url
-    final List<Tuple2<String, String>> params = new ArrayList<>()
-    final Map<String, String> headers = new TreeMap<>(String.CASE_INSENSITIVE_ORDER)
-    private String body
-    private ConfigDSL config
+class RequestDSL implements HasStyle {
+    private final ConfigDSL config
+    private final Method method
+    private final String url
 
-    Map<String, ValueLocator> providers = [:]
+    private final List<Tuple2<String, String>> params = new ArrayList<>()
+    private final Map<String, String> headers = new TreeMap<>(String.CASE_INSENSITIVE_ORDER)
+    private final Map<String, ValueLocator> providers = [:]
+
+    private String body
 
     RequestDSL(ConfigDSL config, Method method, String url) {
         this.config = config
@@ -207,11 +256,11 @@ class RequestDSL implements Style {
     }
 
     HeaderDSL header(String name) {
-        return new HeaderDSL(this, name)
+        new HeaderDSL(this, name)
     }
 
     ParamDSL param(String name) {
-        return new ParamDSL(this, name)
+        new ParamDSL(this, name)
     }
 
     void body(String body) {
@@ -223,20 +272,17 @@ class RequestDSL implements Style {
 
         inColor GREEN, {println(">>> ${method} ${url}")}
 
-        try {
-            HttpRequest request = buildRequest(dictionary);
-            HttpResponse response = null
-            Utilities.timed "\nResponse Latency", {
-                response = ApiScriptDSL.httpClient.send(request, HttpResponse.BodyHandlers.ofString())
-            }
-            createResponse(response)
-        } catch (IOException ex) {
-            println("I/O Error")
+        HttpRequest request = buildRequest(dictionary);
+        HttpResponse response = null
+        Utilities.timed "\nResponse Latency", {
+            response = Statements.httpClient.send(request, HttpResponse.BodyHandlers.ofString())
         }
+        createResponse(response)
     }
 
     private HttpRequest buildRequest(Dictionary dictionary) {
         var fullUrl = "${url}${Utilities.paramsToString(params)}"
+
         var builder = HttpRequest.newBuilder()
             .uri(URI.create(fullUrl))
             .timeout(Duration.ofMinutes(2))
@@ -254,12 +300,13 @@ class RequestDSL implements Style {
 
         if (body) {
             actualBody = dictionary.interpolate(body)
+
             if (config.printRequestBody()) {
-                inThin {
+                inSubtle {
                     println()
-                    println(Utilities
-                            .formatBodyText(actualBody,
-                                            headers['content-type']))
+                    println(
+                        Utilities.formatBodyText(actualBody,
+                                                 headers['content-type']))
                     println()
                 }
             }
@@ -275,7 +322,8 @@ class RequestDSL implements Style {
         Map<String, String> headers = [:]
 
         response.headers().map().each {
-            // The first line of the response is represented as a MapEntry with no key.
+            // The first line of the response is represented as a MapEntry with
+            // no key.
             if (it.key) {
                 headers[it.key] = it.value[0]
             }
@@ -285,9 +333,7 @@ class RequestDSL implements Style {
                                   headers,
                                   response.body())
 
-        var succeeded = response.statusCode() in (200 .. 302) 
-
-        inColor succeeded ? GREEN : RED, {
+        inColor result.succeeded() ? GREEN : RED, {
             println("<<< Status: ${result.statusCode}")
         }
 
@@ -301,7 +347,7 @@ class RequestDSL implements Style {
         }
 
         if (config.printResponseBody()) {
-            inThin {
+            inSubtle {
                 println(result.formattedBody())
             }
         }
@@ -323,7 +369,7 @@ ${body}
     }
 
     boolean canProvide(String name) {
-        return name in providers
+        name in providers
     }
 
     String provide(Response response, String valueName) {
@@ -332,7 +378,7 @@ ${body}
 
     Object provides(String valueName) {
         final RequestDSL request = this
-        return new HashMap<String, Object>() {
+        new HashMap<String, Object>() {
             Object from(Object sourceType) {
                 if (sourceType == 'responseBody') {
                     request.providers[valueName] = new InBody()
@@ -363,9 +409,9 @@ ${body}
  */
 @TypeChecked
 class ProviderDispatch {
-    RequestDSL request
-    String valueName
-    String sourceType
+    private final RequestDSL request
+    private final String valueName
+    private final String sourceType
 
     ProviderDispatch(RequestDSL request,
                      String valueName,
@@ -406,7 +452,7 @@ class DictionarySource {
     String getValue(String valueName) {
         var provider = request.providers[valueName]
         if (provider) {
-            return provider.extractValue(response)
+             provider.extractValue(response)
         }
     }
 
@@ -446,6 +492,7 @@ Could not find value '${valueName}' in sources: ${sources.reverse()}""")
     }
 }
 
+@TypeChecked
 abstract class ValueLocator {
     abstract String extractValue(Response response)
 }
@@ -515,10 +562,10 @@ class InJson extends ValueLocator {
 
 @TypeChecked
 class Response {
-    String body
-    Integer statusCode
-    final Map<String, String> headers = new TreeMap<>(String.CASE_INSENSITIVE_ORDER)
-    String contentType
+    private final String body
+    private final Integer statusCode
+    private final Map<String, String> headers = new TreeMap<>(String.CASE_INSENSITIVE_ORDER)
+    private String contentType
 
     Response(Integer statusCode,
              Map<String, String> headers,
@@ -527,6 +574,10 @@ class Response {
         this.headers = headers
         this.body = body
         this.contentType = this.headers.'content-type'
+    }
+
+    boolean succeeded() {
+        statusCode in (200 .. 302)
     }
 
     Object toJson() {
@@ -552,9 +603,15 @@ Body: ${body}"""
     }
 }
 
+@TypeChecked
+trait HasEnvironment {
+    static String env(String envVarName, String defaultValue = null) {
+        Utilities.getEnvVar(envVarName, defaultValue)
+    }
+}
 
 @TypeChecked
-class HeaderDSL implements BaseDSL {
+class HeaderDSL implements HasEnvironment {
     String name
     RequestDSL request
 
@@ -573,7 +630,7 @@ class HeaderDSL implements BaseDSL {
 }
 
 @TypeChecked
-class ParamDSL implements BaseDSL {
+class ParamDSL implements HasEnvironment {
     String name
     RequestDSL request
 
@@ -588,7 +645,7 @@ class ParamDSL implements BaseDSL {
 }
 
 @TypeChecked
-class Utilities implements Style {
+class Utilities implements HasStyle {
     final static Pattern VALUE_NAME_REGEX = ~/\{\{([^}]*)\}\}/
 
     static headersToString(Map<String, String> headers) {
@@ -676,7 +733,7 @@ class Utilities implements Style {
 }
 
 @TypeChecked
-class ApiScriptException extends Exception {
+public class ApiScriptException extends Exception {
     ApiScriptException(String what) {
         super(what)
     }
@@ -687,14 +744,14 @@ class ApiScriptException extends Exception {
 }
 
 @TypeChecked
-class SyntaxError extends ApiScriptException {
+public class SyntaxError extends ApiScriptException {
     SyntaxError(String what) {
         super(what)
     }
 }
 
 @TypeChecked
-class EvaluationError extends ApiScriptException {
+public class EvaluationError extends ApiScriptException {
     EvaluationError(String what) {
         super(what)
     }
