@@ -12,13 +12,13 @@ script {
     }
 
     var req1 = POST "http://httpbin.org/anything", {
-        header 'Accept' 'application/json'
+        header 'Accept'       'application/json'
         header 'Content-Type' 'application/json'
-        header 'SECRET' env("SECRET_TOKEN", "SEcR3t")
-        header 'User-Agent' links
-        param 'order' slug
+        header 'SECRET'       env("SECRET_TOKEN", "SEcR3t")
+        header 'User-Agent'   "links"
+        param 'order'         "slug"
         param 'limit' 3
-        param 'user' env("USER", "anonymous")
+        param 'user'          env("USER", "anonymous")
         body '''
         {
             "title": "My Blog",
@@ -57,7 +57,7 @@ script {
 
     var arrayUser = GET "https://httpbin.org/get", {
         param "limit" 5
-        header "offset" "{{offsets}}"
+        param "offset" "{{offsets}}"
     }
 
     group "Group 1", [

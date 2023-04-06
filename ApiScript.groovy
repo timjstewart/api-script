@@ -4,6 +4,7 @@ import java.net.http.HttpResponse
 import java.net.URLEncoder
 import java.time.Duration
 import java.util.regex.Pattern
+import java.util.regex.Matcher
 
 import groovy.json.JsonOutput
 import groovy.json.JsonSlurper
@@ -131,7 +132,7 @@ class Statements implements HasStyle {
         c.call()
     }
 
-    static void checkDependencies(List<RequestDSL> requests) {
+    private static void checkDependencies(List<RequestDSL> requests) {
         var providedValues = new HashSet<String>()
 
         requests.collate(2, 1).each {
@@ -523,26 +524,46 @@ class InHeader extends Provider {
 
 @TypeChecked
 class InJson extends Provider {
-    String jsonPath
+
+    static class PathElement {
+        boolean isProperty() { false }
+        boolean isArrayIndex() { false }
+    }
+
+    static class Property extends PathElement {
+        private final String name
+        Property(String name) { this.name = name }
+        boolean isProperty() { true }
+        @Override String toString() { name }
+    }
+
+    static class ArrayIndex extends PathElement {
+        private final int index
+        ArrayIndex(int index) { this.index = index }
+        boolean isArrayIndex() { true }
+        @Override String toString() { index.toString() }
+    }
+
+    final List<PathElement> jsonPath
+
     InJson(String jsonPath) {
-        this.jsonPath = jsonPath
+        this.jsonPath = parseJsonPath(jsonPath)
     }
 
     String provideValueFrom(Response response) {
         if (response.isJson()) {
             try {
                 var json = response.toJson()
-                var path = jsonPath.split('\\.').toList()
-                extractJsonValue(path, json)
+                extractJsonValue(jsonPath, json)
             } catch (ApiScriptException ex) {
-                throw new ApiScriptException("could not find JSON value '${jsonPath}'.  ${ex.getMessage()}", ex)
+                throw new ApiScriptException("could not find JSON value at path '${jsonPath}'.  ${ex.getMessage()}", ex)
             }
         } else {
-            throw new ApiScriptException("could not find JSON value '${jsonPath}' in non-JSON body: '${response.toString()}'")
+            throw new ApiScriptException("could not find JSON value at path '${jsonPath}' in non-JSON body: '${response.toString()}'")
         }
     }
 
-    private String extractJsonValue(List<String> path, Object json) {
+    private String extractJsonValue(List<PathElement> path, Object json) {
         if (path.isEmpty()) {
             if (json instanceof String || json instanceof Float || json instanceof Boolean) {
                 return json.toString()
@@ -552,16 +573,54 @@ class InJson extends Provider {
         } else {
             var head = path.head()
             if (json instanceof Map) {
+                String property = head.toString()
                 var obj = json as Map<String, Object>
-                if (head in obj) {
-                    extractJsonValue(path.tail(), obj[head]) 
+                if (property in obj) {
+                    extractJsonValue(path.tail(), obj[property]) 
                 } else {
-                    throw new ApiScriptException("key '${head}' not found in json: '${json}'")
+                    throw new ApiScriptException("key '${property}' not found in json: '${json}'")
+                }
+            } else if (json instanceof List) {
+                List list = json as List
+                if (head.isArrayIndex()) {
+                    int index = (head as ArrayIndex).index
+                    if (index < list.size()) {
+                        extractJsonValue(path.tail(), json[index])
+                    } else {
+                        throw new ApiScriptException("array ${json} only has ${list.size()} elements in it but element at index ${index} was requested.")
+                    }
+                } else {
+                    throw new ApiScriptException("${head} is not a valid array index for '${json}'.")
                 }
             } else {
                 throw new ApiScriptException("key '${head}' not found in non-object: '${json}'")
             }
         }
+    }
+
+    /**
+     * Given a String like "name", returns ["name"].
+     * Given a String like "name[3]", returns ["name", 3].
+     */
+    static private List<PathElement> tokenize(String s) {
+        final Pattern pattern = Pattern.compile(/(\w+)\[(\d+)\]/)
+        final Matcher m = s =~ pattern
+        if (m.matches()) {
+            if (m.group(2).isInteger()) {
+                [
+                    new Property(m.group(1)),
+                    new ArrayIndex(m.group(2).toInteger())
+                ]
+            } else {
+                Utilities.fatalError("encountered non-numeric Array index '$s'")
+            }
+        } else {
+            [new Property(s)]
+        }
+    }
+
+    static List<PathElement> parseJsonPath(String path) {
+        path.split(/\./).collectMany{tokenize(it)}
     }
 }
 
