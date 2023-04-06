@@ -274,20 +274,35 @@ class RequestDSL implements HasStyle {
     }
 
     Response sendRequest(Dictionary dictionary) {
-        def url = dictionary.interpolate(url + Utilities.paramsToString(params))
+        var interpolatedParams = params.collect {
+            new Tuple2(it.V1, dictionary.interpolate(it.V2))
+        }
 
-        inColor GREEN, {println(">>> ${method} ${url}")}
+        final def unencodedUrl = url + Utilities.paramsToString(interpolatedParams, false)
+
+        inColor GREEN, {
+            println(">>> ${method} ${unencodedUrl}")
+        }
 
         HttpRequest request = buildRequest(dictionary);
         HttpResponse response = null
         Utilities.timed "\nResponse Latency", {
-            response = httpClient.send(request, HttpResponse.BodyHandlers.ofString())
+            response = httpClient.send(
+                request,
+                HttpResponse.BodyHandlers.ofString()
+            )
         }
         createResponse(response)
     }
 
     private HttpRequest buildRequest(Dictionary dictionary) {
-        var fullUrl = "${url}${Utilities.paramsToString(params)}"
+        var interpolatedParams = params.collect {
+            new Tuple2(it.V1, dictionary.interpolate(it.V2))
+        }
+
+        final String fullUrl = "${url}${Utilities.paramsToString(interpolatedParams)}"
+
+        println(fullUrl)
 
         var builder = HttpRequest.newBuilder()
             .uri(URI.create(fullUrl))
@@ -716,9 +731,9 @@ class Utilities implements HasStyle {
         headers.collect {"${it.key}: ${it.value}"}.join("\n")
     }
 
-    static String paramsToString(List<Tuple2<String,String>> params) {
+    static String paramsToString(List<Tuple2<String,String>> params, boolean encodeParams = true) {
         var result = params.collect {
-            var encoded = java.net.URLEncoder.encode(it.V2, "UTF-8")
+            var encoded = encodeParams ? java.net.URLEncoder.encode(it.V2, "UTF-8") : it.V2
             "${it.V1}=${encoded}"
         }.join("&")
         result ? "?" + result : ""
