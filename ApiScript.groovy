@@ -1,7 +1,3 @@
-@Grab(group="org.fusesource.jansi",
-      module="jansi",
-      version="2.4.0")
-
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
@@ -30,7 +26,7 @@ enum Method {
 
 @TypeChecked
 class ApiScript {
-    static void script(@DelegatesTo(Statements) Closure c) {
+    static void script(@DelegatesTo(Statements) Closure<Void> c) {
         Terminal.init()
 
         var args = getArguments()
@@ -78,18 +74,17 @@ class Terminal {
 
 @TypeChecked
 class Statements implements HasStyle {
-    private static HttpClient httpClient = HttpClient.newBuilder() .build()
 
     private Map<String, List<RequestDSL>> groups = [:]
     private ConfigDSL _config = new ConfigDSL()
 
-    RequestDSL DELETE(String url, Closure c = null) {return request(Method.DELETE, url, c)}
-    RequestDSL GET(String url, Closure c = null) {return request(Method.GET, url, c)}
-    RequestDSL HEAD(String url, Closure c = null) {return request(Method.HEAD, url, c)}
-    RequestDSL OPTIONS(String url, Closure c = null) {return request(Method.OPTIONS, url, c)}
-    RequestDSL PATCH(String url, Closure c = null) {return request(Method.PATCH, url, c)}
-    RequestDSL POST(String url, Closure c = null) {return request(Method.POST, url, c)}
-    RequestDSL PUT(String url, Closure c = null) {return request(Method.PUT, url, c)}
+    RequestDSL DELETE(String url, Closure<RequestDSL> c = null) {return request(Method.DELETE, url, c)}
+    RequestDSL GET(String url, Closure<RequestDSL> c = null) {return request(Method.GET, url, c)}
+    RequestDSL HEAD(String url, Closure<RequestDSL> c = null) {return request(Method.HEAD, url, c)}
+    RequestDSL OPTIONS(String url, Closure<RequestDSL> c = null) {return request(Method.OPTIONS, url, c)}
+    RequestDSL PATCH(String url, Closure<RequestDSL> c = null) {return request(Method.PATCH, url, c)}
+    RequestDSL POST(String url, Closure<RequestDSL> c = null) {return request(Method.POST, url, c)}
+    RequestDSL PUT(String url, Closure<RequestDSL> c = null) {return request(Method.PUT, url, c)}
 
     void printAvailableGroups() {
         println("Available groups:")
@@ -130,7 +125,7 @@ class Statements implements HasStyle {
         }
     }
 
-    void config(@DelegatesTo(ConfigDSL) Closure c) {
+    void config(@DelegatesTo(ConfigDSL) Closure<Void> c) {
         c.delegate = _config
         c.resolveStrategy = Closure.DELEGATE_ONLY
         c.call()
@@ -160,7 +155,7 @@ class Statements implements HasStyle {
     private RequestDSL request(
         Method method,
         String url,
-        @DelegatesTo(RequestDSL) Closure c) {
+        @DelegatesTo(RequestDSL) Closure<RequestDSL> c) {
         var dsl = new RequestDSL(_config, method, url)
         try {
             if (c) {
@@ -219,7 +214,7 @@ class ConfigDSL {
 }
 
 trait HasStyle {
-    static void inColor(Color color, Closure c) {
+    static void inColor(Color color, Closure<Void> c) {
         print(ansi().fg(color))
         c.call()
         print(ansi().a(Attribute.RESET))
@@ -239,6 +234,8 @@ trait HasStyle {
 }
 
 class RequestDSL implements HasStyle {
+    private static HttpClient httpClient = HttpClient.newBuilder() .build()
+
     private final ConfigDSL config
     private final Method method
     private final String url
@@ -267,6 +264,14 @@ class RequestDSL implements HasStyle {
         this.body = body
     }
 
+    ValueLocator getProvider(String valueName) {
+        return providers[valueName]
+    }
+
+    String describeProviders() {
+        "${url} - ${providers.keySet()}"
+    }
+
     Response sendRequest(Dictionary dictionary) {
         def url = dictionary.interpolate(url + Utilities.paramsToString(params))
 
@@ -275,7 +280,7 @@ class RequestDSL implements HasStyle {
         HttpRequest request = buildRequest(dictionary);
         HttpResponse response = null
         Utilities.timed "\nResponse Latency", {
-            response = Statements.httpClient.send(request, HttpResponse.BodyHandlers.ofString())
+            response = httpClient.send(request, HttpResponse.BodyHandlers.ofString())
         }
         createResponse(response)
     }
@@ -331,7 +336,7 @@ class RequestDSL implements HasStyle {
 
         var result = new Response(response.statusCode(),
                                   headers,
-                                  response.body())
+                                  response.body() as String)
 
         inColor result.succeeded() ? GREEN : RED, {
             println("<<< Status: ${result.statusCode}")
@@ -373,13 +378,13 @@ ${body}
     }
 
     String provide(Response response, String valueName) {
-        providers[valueName].provide(response)
+        providers[valueName].extractValue(response)
     }
 
     Object provides(String valueName) {
         final RequestDSL request = this
         new HashMap<String, Object>() {
-            Object from(Object sourceType) {
+            Object from(String sourceType) {
                 if (sourceType == 'responseBody') {
                     request.providers[valueName] = new InBody()
                 } else {
@@ -450,7 +455,7 @@ class DictionarySource {
     }
 
     String getValue(String valueName) {
-        var provider = request.providers[valueName]
+        var provider = request.getProvider(valueName)
         if (provider) {
              provider.extractValue(response)
         }
@@ -458,7 +463,7 @@ class DictionarySource {
 
     @Override
     String toString() {
-        "${request.url} - ${request.providers.keySet()}"
+        request.describeProviders()
     }
 }
 
@@ -485,8 +490,8 @@ Could not find value '${valueName}' in sources: ${sources.reverse()}""")
     }
 
     String interpolate(String text) {
-        Utilities.replaceValueReferences(text, {m ->
-            var valueName = m[1]
+        Utilities.replaceValueReferences(text, { Object[] m ->
+            String valueName = m[1] as String
             getValue(valueName)
         })
     }
@@ -563,11 +568,11 @@ class InJson extends ValueLocator {
 @TypeChecked
 class Response {
     private final String body
-    private final Integer statusCode
+    private final int statusCode
     private final Map<String, String> headers = new TreeMap<>(String.CASE_INSENSITIVE_ORDER)
     private String contentType
 
-    Response(Integer statusCode,
+    Response(int statusCode,
              Map<String, String> headers,
              String body) {
         this.statusCode = statusCode
@@ -664,7 +669,7 @@ class Utilities implements HasStyle {
         text.findAll(VALUE_NAME_REGEX).toSet()
     }
 
-    static String replaceValueReferences(String text, Closure c) {
+    static String replaceValueReferences(String text, Closure<String> c) {
         text.replaceAll(VALUE_NAME_REGEX, c)
     }
 
@@ -683,7 +688,7 @@ class Utilities implements HasStyle {
         }
     }
 
-    static Object timed(String operation, Closure c) {
+    static <T> T timed(String operation, Closure<T> c) {
         def startTime = new Date().getTime()
         var result = c.call()
         def stopTime = new Date().getTime()
