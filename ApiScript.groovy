@@ -242,7 +242,7 @@ class RequestDSL implements HasStyle {
 
     private final List<Tuple2<String, String>> params = new ArrayList<>()
     private final Map<String, String> headers = new TreeMap<>(String.CASE_INSENSITIVE_ORDER)
-    private final Map<String, ValueLocator> providers = [:]
+    private final Map<String, Provider> providers = [:]
 
     private String body
 
@@ -264,7 +264,7 @@ class RequestDSL implements HasStyle {
         this.body = body
     }
 
-    ValueLocator getProvider(String valueName) {
+    Provider getProvider(String valueName) {
         return providers[valueName]
     }
 
@@ -378,7 +378,7 @@ ${body}
     }
 
     String provide(Response response, String valueName) {
-        providers[valueName].extractValue(response)
+        providers[valueName].provideValueFrom(response)
     }
 
     Object provides(String valueName) {
@@ -457,7 +457,7 @@ class DictionarySource {
     String getValue(String valueName) {
         var provider = request.getProvider(valueName)
         if (provider) {
-             provider.extractValue(response)
+             provider.provideValueFrom(response)
         }
     }
 
@@ -498,37 +498,37 @@ Could not find value '${valueName}' in sources: ${sources.reverse()}""")
 }
 
 @TypeChecked
-abstract class ValueLocator {
-    abstract String extractValue(Response response)
+abstract class Provider {
+    abstract String provideValueFrom(Response response)
 }
 
 @TypeChecked
-class InBody extends ValueLocator {
-    String extractValue(Response response) {
+class InBody extends Provider {
+    String provideValueFrom(Response response) {
         response.body
     }
 }
 
 @TypeChecked
-class InHeader extends ValueLocator {
+class InHeader extends Provider {
     String headerName
     InHeader(String headerName) {
         this.headerName = headerName
     }
 
-    String extractValue(Response response) {
+    String provideValueFrom(Response response) {
         response.headers[headerName]
     }
 }
 
 @TypeChecked
-class InJson extends ValueLocator {
+class InJson extends Provider {
     String jsonPath
     InJson(String jsonPath) {
         this.jsonPath = jsonPath
     }
 
-    String extractValue(Response response) {
+    String provideValueFrom(Response response) {
         if (response.isJson()) {
             try {
                 var json = response.toJson()
