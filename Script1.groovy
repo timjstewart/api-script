@@ -21,9 +21,9 @@ script {
         param 'user' env("USER", "anonymous")
         body '''
         {
-        "title": "My Blog",
-        "slug": "my-blog",
-        "text": "This is my blog."
+            "title": "My Blog",
+            "slug": "my-blog",
+            "text": "This is my blog."
         }
         '''
         provides "host" from header "server";
