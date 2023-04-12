@@ -41,7 +41,7 @@ class ApiScript {
             statements.printAvailableGroups()
         } else {
             var groupName = args[0]
-            if (groupName in statements.groups) {
+            if (groupName in statements.groups.keySet()) {
                 statements.run(groupName)
             } else {
                 println("Unknown group '${groupName}'")
@@ -117,6 +117,10 @@ class Statements implements HasStyle {
             checkDependencies(requests)
             var dictionary = new Dictionary()
             requests.each {
+                if (it.tokenSource) {
+                    Response tokenResponse = it.tokenSource.sendRequest(dictionary)
+                    dictionary.addSource(new DictionarySource(it.tokenSource, tokenResponse))
+                }
                 Response response = it.sendRequest(dictionary)
                 dictionary.addSource(new DictionarySource(it, response))
                 println()
@@ -142,7 +146,15 @@ class Statements implements HasStyle {
             if (!requiringRequest)
                 return
 
-            providedValues.addAll(providingRequest.providers.keySet())
+            providedValues.addAll(
+                providingRequest.providers.keySet()
+            )
+
+            if (requiringRequest.tokenSource) {
+                providedValues.addAll(
+                    requiringRequest.tokenSource.providers.keySet()
+                )
+            }
 
             requiringRequest.valueReferences().each {
                 if (!(it in providedValues)) {
@@ -246,6 +258,7 @@ class RequestDSL implements HasStyle {
     private final Map<String, Provider> providers = [:]
 
     private String body
+    private RequestDSL tokenSource
 
     RequestDSL(ConfigDSL config, Method method, String url) {
         this.config = config
@@ -271,6 +284,10 @@ class RequestDSL implements HasStyle {
 
     String describeProviders() {
         "${url} - ${providers.keySet()}"
+    }
+
+    void tokenSource(RequestDSL request) {
+        tokenSource = request
     }
 
     Response sendRequest(Dictionary dictionary) {
@@ -301,8 +318,6 @@ class RequestDSL implements HasStyle {
         }
 
         final String fullUrl = "${url}${Utilities.paramsToString(interpolatedParams)}"
-
-        println(fullUrl)
 
         var builder = HttpRequest.newBuilder()
             .uri(URI.create(fullUrl))
@@ -502,7 +517,7 @@ class Dictionary {
             }
         }
         throw new ApiScriptException("""Value dependency check failed.
-Could not find value '${valueName}' in sources: ${sources.reverse()}""")
+Could not find value '${valueName}' in the following requests: ${sources.reverse()}""")
     }
 
     String interpolate(String text) {

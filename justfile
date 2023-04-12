@@ -3,3 +3,10 @@ watch:
 
 run:
    SECRET_TOKEN=apple groovy Main.groovy Script1.groovy
+
+compile:
+  groovyc -d lib *.groovy
+
+
+clean:
+  rm lib/*.class

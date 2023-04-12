@@ -60,6 +60,18 @@ script {
         param "offset" "{{offsets}}"
     }
 
+    var acquiresToken = POST "https://httpbin.org/anything", {
+        provides "token" from json "json.token"
+        body '''{
+           "token": "SecretToken@"
+        }'''
+    }
+
+    var requiresToken = GET "https://httpbin.org/get", {
+        header "token" "{{token}}"
+        tokenSource acquiresToken
+    }
+
     group "Group 1", [
         req1,
         req2
@@ -74,5 +86,10 @@ script {
         jsonArrays,
         arrayUser
     ]
+
+    group "tokenTest", [
+        requiresToken
+    ]
 }
 
+println("DONE")
