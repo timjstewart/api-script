@@ -115,13 +115,21 @@ class Statements implements HasStyle {
     void send(List<RequestDSL> requests) {
         try {
             checkDependencies(requests)
-            var dictionary = new Dictionary()
+            final var dictionary = new Dictionary()
             requests.each {
-                if (it.tokenSource) {
-                    Response tokenResponse = it.tokenSource.sendRequest(dictionary)
-                    dictionary.addSource(new DictionarySource(it.tokenSource, tokenResponse))
+                final var tokenName = it.tokenSource.tokenName
+                final var tokenRequest = it.tokenSource.request
+                if (it.tokenSource && !dictionary.hasValue(tokenName)) {
+                    final Response tokenResponse = tokenRequest.sendRequest(dictionary)
+                    dictionary.addSource(new DictionarySource(tokenRequest, tokenResponse))
+
+                    if(!dictionary.hasValue(tokenName)) {
+                        throw new EvaluationError(
+                            "Could not acquire token named '${tokenName}' from " +
+                            "tokenSource request '${tokenRequest.url}'.")
+                    }
                 }
-                Response response = it.sendRequest(dictionary)
+                final Response response = it.sendRequest(dictionary)
                 dictionary.addSource(new DictionarySource(it, response))
                 println()
             }
@@ -152,7 +160,7 @@ class Statements implements HasStyle {
 
             if (requiringRequest.tokenSource) {
                 providedValues.addAll(
-                    requiringRequest.tokenSource.providers.keySet()
+                    requiringRequest.tokenSource.request.providers.keySet()
                 )
             }
 
@@ -258,7 +266,7 @@ class RequestDSL implements HasStyle {
     private final Map<String, Provider> providers = [:]
 
     private String body
-    private RequestDSL tokenSource
+    private TokenSource tokenSource
 
     RequestDSL(ConfigDSL config, Method method, String url) {
         this.config = config
@@ -286,8 +294,10 @@ class RequestDSL implements HasStyle {
         "${url} - ${providers.keySet()}"
     }
 
-    void tokenSource(RequestDSL request) {
-        tokenSource = request
+    TokenSource tokenSource(RequestDSL request) {
+        TokenSource source = new TokenSource(request)
+        tokenSource = source
+        return source
     }
 
     Response sendRequest(Dictionary dictionary) {
@@ -507,6 +517,16 @@ class Dictionary {
 
     void addSource(DictionarySource source) {
         sources << source
+    }
+
+    Boolean hasValue(String valueName) {
+        for (source in sources.reverse()) {
+            var value = source.getValue(valueName)
+            if (value) {
+                return true
+            }
+        }
+        false
     }
 
     String getValue(String valueName) {
@@ -823,6 +843,20 @@ class Utilities implements HasStyle {
         println(ansi().a(Attribute.RESET))
         AnsiConsole.systemUninstall()
         System.exit(1)
+    }
+}
+
+class TokenSource {
+    final RequestDSL request
+    String tokenName
+
+    TokenSource(RequestDSL request) {
+        this.request = request
+    }
+
+    TokenSource propertyMissing(String name) {
+        tokenName = name
+        return this
     }
 }
 

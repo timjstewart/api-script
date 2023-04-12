@@ -68,8 +68,8 @@ script {
     }
 
     var requiresToken = GET "https://httpbin.org/get", {
-        header "token" "{{token}}"
-        tokenSource acquiresToken
+        header      "token" "{{token}}"
+        tokenSource acquiresToken "token"
     }
 
     group "Group 1", [
@@ -88,8 +88,7 @@ script {
     ]
 
     group "tokenTest", [
+        requiresToken,
         requiresToken
     ]
 }
-
-println("DONE")
