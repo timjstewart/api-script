@@ -8,6 +8,7 @@ import java.util.regex.Matcher
 
 import groovy.json.JsonOutput
 import groovy.json.JsonSlurper
+import groovy.json.JsonException
 import groovy.transform.TypeChecked
 
 import org.fusesource.jansi.Ansi.Color
@@ -773,8 +774,17 @@ class Utilities implements HasStyle {
 
     static String paramsToString(List<Tuple2<String,String>> params, boolean encodeParams = true) {
         var result = params.collect {
-            var encoded = encodeParams ? java.net.URLEncoder.encode(it.V2, "UTF-8") : it.V2
-            "${it.V1}=${encoded}"
+            var name = it.V1
+            var value = it.v2
+            try {
+                var json = new JsonSlurper().parseText(it.V2)
+                value = JsonOutput.toJson(json)
+            } catch (JsonException ex) {
+                // use current value of value
+            }
+            var encoded = encodeParams ? java.net.URLEncoder.encode(value, "UTF-8") : value
+
+            "${name}=${encoded}"
         }.join("&")
         result ? "?" + result : ""
     }

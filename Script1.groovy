@@ -72,6 +72,12 @@ script {
         tokenSource acquiresToken "token"
     }
 
+    var jsonParameter = GET "https://httpbin.org/get", {
+        param      "criteria" '''
+                   {"student": {"id": "32343"}}}
+                   '''
+    }
+
     group "Group 1", [
         req1,
         req2
@@ -90,5 +96,9 @@ script {
     group "tokenTest", [
         requiresToken,
         requiresToken
+    ]
+
+    group "json", [
+        jsonParameter
     ]
 }

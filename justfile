@@ -9,4 +9,4 @@ compile:
 
 
 clean:
-  rm lib/*.class
+  rm -v lib/*.class >& /dev/null || true
