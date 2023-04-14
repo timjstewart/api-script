@@ -117,9 +117,9 @@ class Statements implements HasStyle {
             checkDependencies(requests)
             final var dictionary = new Dictionary()
             requests.each {
-                final var tokenName = it.tokenSource.tokenName
-                final var tokenRequest = it.tokenSource.request
-                if (it.tokenSource && !dictionary.hasValue(tokenName)) {
+                final var tokenName = it.tokenSource?.tokenName
+                final var tokenRequest = it.tokenSource?.request
+                if (tokenName && !dictionary.hasValue(tokenName)) {
                     final Response tokenResponse = tokenRequest.sendRequest(dictionary)
                     dictionary.addSource(new DictionarySource(tokenRequest, tokenResponse))
 
@@ -635,7 +635,7 @@ class InJson extends Provider {
                 if (head.isArrayIndex()) {
                     int index = (head as ArrayIndex).index
                     if (index < list.size()) {
-                        extractJsonValue(path.tail(), json[index])
+                        return extractJsonValue(path.tail(), json[index])
                     } else {
                         throw new ApiScriptException("array ${json} only has ${list.size()} elements in it but element at index ${index} was requested.")
                     }
@@ -651,21 +651,26 @@ class InJson extends Provider {
     /**
      * Given a String like "name", returns ["name"].
      * Given a String like "name[3]", returns ["name", 3].
+     * Given a String like "[3]", returns [3].
      */
     static private List<PathElement> tokenize(String s) {
-        final Pattern pattern = Pattern.compile(/(\w+)\[(\d+)\]/)
+        final Pattern pattern = Pattern.compile(/(\w+)?\[(\d+)\]/)
         final Matcher m = s =~ pattern
         if (m.matches()) {
-            if (m.group(2).isInteger()) {
+            if (m.group(1)) {
                 [
                     new Property(m.group(1)),
                     new ArrayIndex(m.group(2).toInteger())
                 ]
             } else {
-                Utilities.fatalError("encountered non-numeric Array index '$s'")
+                [
+                    new ArrayIndex(m.group(2).toInteger())
+                ]
             }
         } else {
-            [new Property(s)]
+            [
+                new Property(s)
+            ]
         }
     }
 
@@ -702,7 +707,7 @@ class Response {
     }
 
     boolean isJson() {
-        return contentType == "application/json"
+        return contentType.startsWith("application/json")
     }
 
     String formattedBody() {

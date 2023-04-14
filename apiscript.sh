@@ -5,4 +5,4 @@ if [ "$#" = "0" ] ; then
     exit 1
 fi
 
-groovy -cp "$(dirname "$0")/lib" $* |& grep -v _JAVA_OPTIONS
+groovy -cp "$(dirname "$0")/lib" $*
