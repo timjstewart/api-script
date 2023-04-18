@@ -11,7 +11,7 @@ script {
         printResponseBody    true
     }
 
-    POST sendFoo, "http://httpbin.org/anything", {
+    POST req1, "http://httpbin.org/anything", {
         header 'Accept'       'application/json'
         header 'Content-Type' 'application/json'
         header 'SECRET'       env("SECRET_TOKEN", "SEcR3t")
@@ -78,27 +78,27 @@ script {
                    '''
     }
 
-    // group "Group 1", [
-    //     req1,
-    //     req2
-    // ]
+    group "Group 1", [
+        req1,
+        req2
+    ]
 
-    // group "Group 2", [
-    //     req3,
-    //     req4
-    // ]
+    group "Group 2", [
+        req3,
+        req4
+    ]
 
-    // group "JSON Arrays", [
-    //     jsonArrays,
-    //     arrayUser
-    // ]
+    group "JSON Arrays", [
+        jsonArrays,
+        arrayUser
+    ]
 
-    // group "tokenTest", [
-    //     requiresToken,
-    //     requiresToken
-    // ]
+    group "tokenTest", [
+        acquiresToken,
+        requiresToken
+    ]
 
-    // group "json", [
-    //     jsonParameter
-    // ]
+    group "json", [
+        jsonParameter
+    ]
 }

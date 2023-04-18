@@ -44,6 +44,8 @@ class ApiScript {
             var groupName = args[0]
             if (groupName in statements.commands.keySet()) {
                 statements.run(groupName)
+            } else if (groupName in statements.groups.keySet()) {
+                statements.run(groupName)
             } else {
                 println("Unknown group '${groupName}'")
                 statements.printAvailableCommands()
@@ -81,12 +83,17 @@ class Command {
     Command(String name) {
         this.name = name
     }
+
+    @Override
+    String toString() {
+        return "Command: ${name} hasRequest: ${request != null}"
+    }
 }
 
 @TypeChecked
 class Statements implements HasStyle {
 
-    private Map<String, List<RequestDSL>> groups = [:]
+    private Map<String, List<Command>> groups = [:]
     private Map<String, Command> commands = [:]
     private ConfigDSL _config = new ConfigDSL()
 
@@ -116,13 +123,17 @@ class Statements implements HasStyle {
         }
     }
 
-    void group(String name, List<RequestDSL> requests) {
-        groups[name] = requests
+    void group(String name, List<Command> commands) {
+        groups[name] = commands
     }
 
     void run(String groupName) {
         if (groupName in commands) {
             send([commands[groupName].request])
+        } else if (groupName in groups) {
+            send(groups[groupName].collect{it.request})
+        } else {
+            Utilities.fatalError("Could not run '${groupName}'.")
         }
     }
 
@@ -204,7 +215,7 @@ class Statements implements HasStyle {
 
         command.request = dsl
         commands[command.name] = command
-
+ 
         try {
             if (c) {
                 c.delegate = dsl
@@ -217,8 +228,34 @@ class Statements implements HasStyle {
         }
     }
 
+    /**
+     * If a command by the specified name already exists, return it.
+     * Otherwise create a new Command.
+     *
+     * TODO: When we create a new Command, should we add it to the list
+     *       of commands?
+     */
     Command propertyMissing(String name) {
-        return new Command(name)
+        if (name in commands) {
+            // Called when defining a Group.
+            commands[name]
+        } else {
+            // Called when defining a Request.
+            new Command(name)
+        }
+    }
+
+    @Override
+    String toString() {
+        var sb = new StringBuffer()
+        groups.each {
+            println("Group: ${it}")
+        }
+        commands.each {
+            println("Command: ${it}")
+        }
+
+        return sb.toString()
     }
 }
 
