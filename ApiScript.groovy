@@ -39,14 +39,14 @@ class ApiScript {
         c.call()
 
         if (args.length == 0) {
-            statements.printAvailableGroups()
+            statements.printAvailableCommands()
         } else {
             var groupName = args[0]
-            if (groupName in statements.groups.keySet()) {
+            if (groupName in statements.commands.keySet()) {
                 statements.run(groupName)
             } else {
                 println("Unknown group '${groupName}'")
-                statements.printAvailableGroups()
+                statements.printAvailableCommands()
             }
         }
 
@@ -74,23 +74,36 @@ class Terminal {
     }
 }
 
+class Command {
+    private final String name
+    private RequestDSL request
+
+    Command(String name) {
+        this.name = name
+    }
+}
+
 @TypeChecked
 class Statements implements HasStyle {
 
     private Map<String, List<RequestDSL>> groups = [:]
+    private Map<String, Command> commands = [:]
     private ConfigDSL _config = new ConfigDSL()
 
-    RequestDSL DELETE(String url, Closure<RequestDSL> c = null) {return request(Method.DELETE, url, c)}
-    RequestDSL GET(String url, Closure<RequestDSL> c = null) {return request(Method.GET, url, c)}
-    RequestDSL HEAD(String url, Closure<RequestDSL> c = null) {return request(Method.HEAD, url, c)}
-    RequestDSL OPTIONS(String url, Closure<RequestDSL> c = null) {return request(Method.OPTIONS, url, c)}
-    RequestDSL PATCH(String url, Closure<RequestDSL> c = null) {return request(Method.PATCH, url, c)}
-    RequestDSL POST(String url, Closure<RequestDSL> c = null) {return request(Method.POST, url, c)}
-    RequestDSL PUT(String url, Closure<RequestDSL> c = null) {return request(Method.PUT, url, c)}
+    RequestDSL DELETE(Command command, String url, Closure<RequestDSL> c = null) {return request(command, Method.DELETE, url, c)}
+    RequestDSL GET(Command command, String url, Closure<RequestDSL> c = null) {return request(command, Method.GET, url, c)}
+    RequestDSL HEAD(Command command, String url, Closure<RequestDSL> c = null) {return request(command, Method.HEAD, url, c)}
+    RequestDSL OPTIONS(Command command, String url, Closure<RequestDSL> c = null) {return request(command, Method.OPTIONS, url, c)}
+    RequestDSL PATCH(Command command, String url, Closure<RequestDSL> c = null) {return request(command, Method.PATCH, url, c)}
+    RequestDSL POST(Command command, String url, Closure<RequestDSL> c = null) {return request(command, Method.POST, url, c)}
+    RequestDSL PUT(Command command, String url, Closure<RequestDSL> c = null) {return request(command, Method.PUT, url, c)}
 
-    void printAvailableGroups() {
+    void printAvailableCommands() {
         println("Available groups:")
         groups.keySet().each {
+            println(" - ${it}")
+        }
+        commands.keySet().each {
             println(" - ${it}")
         }
     }
@@ -108,8 +121,8 @@ class Statements implements HasStyle {
     }
 
     void run(String groupName) {
-        if (groupName in groups) {
-            send(groups[groupName])
+        if (groupName in commands) {
+            send([commands[groupName].request])
         }
     }
 
@@ -117,17 +130,18 @@ class Statements implements HasStyle {
         try {
             checkDependencies(requests)
             final var dictionary = new Dictionary()
+
             requests.each {
                 final var tokenName = it.tokenSource?.tokenName
-                final var tokenRequest = it.tokenSource?.request
+                final var tokenRequest = it.tokenSource?.command
                 if (tokenName && !dictionary.hasValue(tokenName)) {
-                    final Response tokenResponse = tokenRequest.sendRequest(dictionary)
-                    dictionary.addSource(new DictionarySource(tokenRequest, tokenResponse))
+                    final Response tokenResponse = tokenRequest.request.sendRequest(dictionary)
+                    dictionary.addSource(new DictionarySource(tokenRequest.request, tokenResponse))
 
                     if(!dictionary.hasValue(tokenName)) {
                         throw new EvaluationError(
                             "Could not acquire token named '${tokenName}' from " +
-                            "tokenSource request '${tokenRequest.url}'.")
+                            "tokenSource request '${tokenRequest.request.url}'.")
                     }
                 }
                 final Response response = it.sendRequest(dictionary)
@@ -161,7 +175,7 @@ class Statements implements HasStyle {
 
             if (requiringRequest.tokenSource) {
                 providedValues.addAll(
-                    requiringRequest.tokenSource.request.providers.keySet()
+                    requiringRequest.tokenSource.command.request.providers.keySet()
                 )
             }
 
@@ -175,10 +189,15 @@ class Statements implements HasStyle {
     }
 
     private RequestDSL request(
+        Command command,
         Method method,
         String url,
         @DelegatesTo(RequestDSL) Closure<RequestDSL> c) {
-        var dsl = new RequestDSL(_config, method, url)
+        var dsl = new RequestDSL(this, _config, method, url)
+
+        command.request = dsl
+        commands[command.name] = command
+
         try {
             if (c) {
                 c.delegate = dsl
@@ -189,6 +208,10 @@ class Statements implements HasStyle {
         } catch (SyntaxError | EvaluationError ex) {
             Utilities.fatalError(ex.getMessage())
         }
+    }
+
+    Command propertyMissing(String name) {
+        return new Command(name)
     }
 }
 
@@ -268,8 +291,10 @@ class RequestDSL implements HasStyle {
 
     private String body
     private TokenSource tokenSource
+    private Statements statements
 
-    RequestDSL(ConfigDSL config, Method method, String url) {
+    RequestDSL(Statements statements, ConfigDSL config, Method method, String url) {
+        this.statements = statements
         this.config = config
         this.method = method
         this.url = url
@@ -295,7 +320,7 @@ class RequestDSL implements HasStyle {
         "${url} - ${providers.keySet()}"
     }
 
-    TokenSource tokenSource(RequestDSL request) {
+    TokenSource tokenSource(Command request) {
         TokenSource source = new TokenSource(request)
         tokenSource = source
         return source
@@ -437,10 +462,13 @@ ${body}
         }
     }
 
-    static Object propertyMissing(String name) {
+    Object propertyMissing(String name) {
         // List of places where values can be retrieved from
         if (name in ["header", "json", "responseBody"])
             return "${name}"
+        if (name in statements.commands.keySet()) {
+            return statements.commands[name]
+        }
         throw new SyntaxError("Unexpected source '${name}'")
     }
 
@@ -862,11 +890,11 @@ class Utilities implements HasStyle {
 }
 
 class TokenSource {
-    final RequestDSL request
+    final Command command
     String tokenName
 
-    TokenSource(RequestDSL request) {
-        this.request = request
+    TokenSource(Command request) {
+        this.command = command
     }
 
     TokenSource propertyMissing(String name) {
