@@ -47,7 +47,7 @@ class ApiScript {
             } else if (groupName in statements.groups.keySet()) {
                 statements.run(groupName)
             } else {
-                println("Unknown group '${groupName}'")
+                println("Unknown command '${groupName}'")
                 statements.printAvailableCommands()
             }
         }
@@ -106,7 +106,7 @@ class Statements implements HasStyle {
     RequestDSL PUT(Command command, String url, Closure<RequestDSL> c = null) {return request(command, Method.PUT, url, c)}
 
     void printAvailableCommands() {
-        println("Available groups:")
+        println("Available commands:")
         groups.keySet().each {
             println(" - ${it}")
         }
