@@ -132,16 +132,23 @@ class Statements implements HasStyle {
             final var dictionary = new Dictionary()
 
             requests.each {
-                final var tokenName = it.tokenSource?.tokenName
-                final var tokenRequest = it.tokenSource?.command
-                if (tokenName && !dictionary.hasValue(tokenName)) {
-                    final Response tokenResponse = tokenRequest.request.sendRequest(dictionary)
-                    dictionary.addSource(new DictionarySource(tokenRequest.request, tokenResponse))
+                if (it.tokenSource) {
+                    final String tokenName = it.tokenSource.tokenName
+                    final Command command = it.tokenSource.command
+                    if (command) {
+                        final RequestDSL request = command.request
+                        if (!dictionary.hasValue(tokenName)) {
+                            final Response tokenResponse = request.sendRequest(dictionary)
+                            dictionary.addSource(
+                                new DictionarySource(request,
+                                                     tokenResponse))
 
-                    if(!dictionary.hasValue(tokenName)) {
-                        throw new EvaluationError(
-                            "Could not acquire token named '${tokenName}' from " +
-                            "tokenSource request '${tokenRequest.request.url}'.")
+                            if(!dictionary.hasValue(tokenName)) {
+                                throw new EvaluationError(
+                                    "Could not acquire token named '${tokenName}' from " +
+                                        "tokenSource request '${request.url}'.")
+                            }
+                        }
                     }
                 }
                 final Response response = it.sendRequest(dictionary)
@@ -893,7 +900,7 @@ class TokenSource {
     final Command command
     String tokenName
 
-    TokenSource(Command request) {
+    TokenSource(Command command) {
         this.command = command
     }
 
