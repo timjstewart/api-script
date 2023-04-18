@@ -7,6 +7,5 @@ run:
 compile:
   groovyc -d lib *.groovy
 
-
 clean:
   rm -v lib/*.class >& /dev/null || true

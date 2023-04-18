@@ -32,6 +32,8 @@ script {
         provides "trace-id" from json "headers.X-Amzn-Trace-Id";
     }
 
+    GET simpleGet, "https://httpbin.org/anything"
+
     GET req2, "https://httpbin.org/anything", {
         header 'Accept' "application/json"
         header 'token' "{{verb}} {{host}} {{trace-id}}"
