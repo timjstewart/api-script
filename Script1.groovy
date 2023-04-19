@@ -1,4 +1,4 @@
-import static ApiScript.*
+import static Hapi.*
 
 script {
 

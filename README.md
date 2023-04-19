@@ -16,8 +16,8 @@ This tool allows you to define "conversational" interactions with HTTPS servers 
 Every script needs to have the following text (you can omit the comments):
 
 ```
-// Import the API Script DSL
-import static ApiScript.*
+// Import Hapi
+import static Hapi.*
 
 script {
    // Your config, commands and groups are defined in here.

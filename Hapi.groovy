@@ -1,20 +1,20 @@
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
-import java.net.URLEncoder
 import java.time.Duration
 import java.util.regex.Pattern
 import java.util.regex.Matcher
 
-import groovy.json.JsonOutput
 import groovy.json.JsonSlurper
-import groovy.json.JsonException
 import groovy.transform.TypeChecked
 
 import org.fusesource.jansi.Ansi.Color
 import org.fusesource.jansi.AnsiConsole
+
 import static org.fusesource.jansi.Ansi.*
 import static org.fusesource.jansi.Ansi.Color.*
+
+import static Utilities.*
 
 enum Method {
     HEAD,
@@ -27,7 +27,7 @@ enum Method {
 }
 
 @TypeChecked
-class ApiScript {
+class Hapi {
     static void script(@DelegatesTo(Statements) Closure<Void> c) {
         Terminal.init()
 
@@ -41,13 +41,13 @@ class ApiScript {
         if (args.length == 0) {
             statements.printAvailableCommands()
         } else {
-            var groupName = args[0]
-            if (groupName in statements.commands.keySet()) {
-                statements.run(groupName)
-            } else if (groupName in statements.groups.keySet()) {
-                statements.run(groupName)
+            var commandName = args[0]
+            if (commandName in statements.commands.keySet()) {
+                statements.run(commandName)
+            } else if (commandName in statements.groups.keySet()) {
+                statements.run(commandName)
             } else {
-                println("Unknown command '${groupName}'")
+                println("Unknown command '${commandName}'")
                 statements.printAvailableCommands()
             }
         }
@@ -92,10 +92,9 @@ class Command {
 
 @TypeChecked
 class Statements implements HasStyle {
-
     private Map<String, List<Command>> groups = [:]
     private Map<String, Command> commands = [:]
-    private ConfigDSL _config = new ConfigDSL()
+    private Config _config = new Config()
 
     RequestDSL DELETE(Command command, String url, Closure<RequestDSL> c = null) {return request(command, Method.DELETE, url, c)}
     RequestDSL GET(Command command, String url, Closure<RequestDSL> c = null) {return request(command, Method.GET, url, c)}
@@ -118,7 +117,7 @@ class Statements implements HasStyle {
     String env(String envVarName, String defaultValue = null) {
         try {
             Utilities.getEnvVar(envVarName, defaultValue)
-        } catch (ApiScriptException ex) {
+        } catch (HapiException ex) {
             Utilities.fatalError(ex.getMessage())
         }
     }
@@ -127,13 +126,13 @@ class Statements implements HasStyle {
         groups[name] = commands
     }
 
-    void run(String groupName) {
-        if (groupName in commands) {
-            send([commands[groupName].request])
-        } else if (groupName in groups) {
-            send(groups[groupName].collect{it.request})
+    void run(String commandName) {
+        if (commandName in commands) {
+            send([commands[commandName].request])
+        } else if (commandName in groups) {
+            send(groups[commandName].collect{it.request})
         } else {
-            Utilities.fatalError("Could not run '${groupName}'.")
+            Utilities.fatalError("Could not run '${commandName}'.")
         }
     }
 
@@ -166,12 +165,12 @@ class Statements implements HasStyle {
                 dictionary.addSource(new DictionarySource(it, response))
                 println()
             }
-        } catch (ApiScriptException ex) {
+        } catch (HapiException ex) {
             Utilities.fatalError(ex.getMessage())
         }
     }
 
-    void config(@DelegatesTo(ConfigDSL) Closure<Void> c) {
+    void config(@DelegatesTo(Config) Closure<Void> c) {
         c.delegate = _config
         c.resolveStrategy = Closure.DELEGATE_ONLY
         c.call()
@@ -199,7 +198,7 @@ class Statements implements HasStyle {
 
             requiringRequest.valueReferences().each {
                 if (!(it in providedValues)) {
-                    throw new ApiScriptException(
+                    throw new HapiException(
                         "'${it}' was not found in provided values: ${providedValues.join(', ')}")
                 }
             }
@@ -259,73 +258,10 @@ class Statements implements HasStyle {
     }
 }
 
-class ConfigDSL {
-    boolean _printRequestHeaders = true
-    boolean _printResponseHeaders = true
-    boolean _printRequestBody = true
-    boolean _printResponseBody = true
-
-    Object methodMissing(String name, Object args) {
-        Utilities.fatalError("Config does not have a setting named '${name}'.")
-    }
-
-    void printRequestHeaders(boolean flag) {
-        _printRequestHeaders = flag
-    }
-
-    void printResponseHeaders(boolean flag) {
-        _printResponseHeaders = flag
-    }
-
-    void printRequestBody(boolean flag) {
-        _printRequestBody = flag
-    }
-
-    void printResponseBody(boolean flag) {
-        _printResponseBody = flag
-    }
-
-    boolean printRequestHeaders() {
-        _printRequestHeaders
-    }
-
-    boolean printResponseHeaders() {
-        _printResponseHeaders
-    }
-
-    boolean printRequestBody() {
-        _printRequestBody
-    }
-
-    boolean printResponseBody() {
-        _printResponseBody
-    }
-}
-
-trait HasStyle {
-    static void inColor(Color color, Closure<Void> c) {
-        print(ansi().fg(color))
-        c.call()
-        print(ansi().a(Attribute.RESET))
-    }
-
-    static void inBold(Closure c) {
-        print(ansi().a(Attribute.INTENSITY_BOLD))
-        c.call()
-        print(ansi().a(Attribute.RESET))
-    }
-
-    static void inSubtle(Closure c) {
-        print(ansi().a(Attribute.INTENSITY_FAINT))
-        c.call()
-        print(ansi().a(Attribute.RESET))
-    }
-}
-
 class RequestDSL implements HasStyle {
     private static HttpClient httpClient = HttpClient.newBuilder() .build()
 
-    private final ConfigDSL config
+    private final Config config
     private final Method method
     private final String url
 
@@ -337,7 +273,7 @@ class RequestDSL implements HasStyle {
     private TokenSource tokenSource
     private Statements statements
 
-    RequestDSL(Statements statements, ConfigDSL config, Method method, String url) {
+    RequestDSL(Statements statements, Config config, Method method, String url) {
         this.statements = statements
         this.config = config
         this.method = method
@@ -553,7 +489,7 @@ class ProviderDispatch {
                 break
 
             default:
-                throw new ApiScriptException(
+                throw new HapiException(
                     "unknown source '${sourceType}'")
         }
     }
@@ -609,8 +545,9 @@ class Dictionary {
                 return value
             }
         }
-        throw new ApiScriptException("""Value dependency check failed.
-Could not find value '${valueName}' in the following requests: ${sources.reverse()}""")
+        throw new HapiException("Value dependency check failed. " +
+                                     "Could not find value '${valueName}' in the " +
+                                     "following requests: ${sources.reverse()}")
     }
 
     String interpolate(String text) {
@@ -678,11 +615,11 @@ class InJson extends Provider {
             try {
                 var json = response.toJson()
                 extractJsonValue(jsonPath, json)
-            } catch (ApiScriptException ex) {
-                throw new ApiScriptException("could not find JSON value at path '${jsonPath}'.  ${ex.getMessage()}", ex)
+            } catch (HapiException ex) {
+                throw new HapiException("could not find JSON value at path '${jsonPath}'.  ${ex.getMessage()}", ex)
             }
         } else {
-            throw new ApiScriptException("could not find JSON value at path '${jsonPath}' in non-JSON body: '${response.toString()}'")
+            throw new HapiException("could not find JSON value at path '${jsonPath}' in non-JSON body: '${response.toString()}'")
         }
     }
 
@@ -691,7 +628,7 @@ class InJson extends Provider {
             if (json instanceof String || json instanceof Float || json instanceof Boolean) {
                 return json.toString()
             } else {
-                throw new ApiScriptException("found non-scalar at path '${json}'")
+                throw new HapiException("found non-scalar at path '${json}'")
             }
         } else {
             var head = path.head()
@@ -701,7 +638,7 @@ class InJson extends Provider {
                 if (property in obj) {
                     extractJsonValue(path.tail(), obj[property]) 
                 } else {
-                    throw new ApiScriptException("key '${property}' not found in json: '${json}'")
+                    throw new HapiException("key '${property}' not found in json: '${json}'")
                 }
             } else if (json instanceof List) {
                 List list = json as List
@@ -710,13 +647,13 @@ class InJson extends Provider {
                     if (index < list.size()) {
                         return extractJsonValue(path.tail(), json[index])
                     } else {
-                        throw new ApiScriptException("array ${json} only has ${list.size()} elements in it but element at index ${index} was requested.")
+                        throw new HapiException("array ${json} only has ${list.size()} elements in it but element at index ${index} was requested.")
                     }
                 } else {
-                    throw new ApiScriptException("${head} is not a valid array index for '${json}'.")
+                    throw new HapiException("${head} is not a valid array index for '${json}'.")
                 }
             } else {
-                throw new ApiScriptException("key '${head}' not found in non-object: '${json}'")
+                throw new HapiException("key '${head}' not found in non-object: '${json}'")
             }
         }
     }
@@ -837,102 +774,6 @@ class ParamDSL implements HasEnvironment {
 }
 
 @TypeChecked
-class Utilities implements HasStyle {
-    final static Pattern VALUE_NAME_REGEX = ~/\{\{([^}]*)\}\}/
-
-    static headersToString(Map<String, String> headers) {
-        headers.collect {"${it.key}: ${it.value}"}.join("\n")
-    }
-
-    static String paramsToString(List<Tuple2<String,String>> params, boolean encodeParams = true) {
-        var result = params.collect {
-            var name = it.V1
-            var value = it.v2
-            try {
-                var json = new JsonSlurper().parseText(it.V2)
-                value = JsonOutput.toJson(json)
-            } catch (JsonException ex) {
-                // use current value of value
-            }
-            var encoded = encodeParams ? java.net.URLEncoder.encode(value, "UTF-8") : value
-
-            "${name}=${encoded}"
-        }.join("&")
-        result ? "?" + result : ""
-    }
-
-    static Set<String> findValueReferences(String text) {
-        text.findAll(VALUE_NAME_REGEX).toSet()
-    }
-
-    static String replaceValueReferences(String text, Closure<String> c) {
-        text.replaceAll(VALUE_NAME_REGEX, c)
-    }
-
-    static String getEnvVar(String name, String defaultValue) {
-        String value = System.getenv(name)
-        if (!value) {
-            if (defaultValue) {
-                println("Environment variable '${name}' not set.  Using default value.")
-                return defaultValue
-            } else {
-                throw new EvaluationError("Environment Variable '${name}' not set.")
-            }
-        } else {
-            println("Environment variable '${name}' found.")
-            value
-        }
-    }
-
-    static <T> T timed(String operation, Closure<T> c) {
-        def startTime = new Date().getTime()
-        var result = c.call()
-        def stopTime = new Date().getTime()
-        inColor(BLUE) {
-            println("${operation}: ${stopTime - startTime} milliseconds")
-        }
-        result
-    }
-
-    static formatBodyText(String text, String contentType = null) {
-        if (contentType) {
-            if (contentType.toLowerCase().startsWith("application/json")) {
-                // You have a strange sense of pretty, JsonOutput.
-                return JsonOutput.prettyPrint(text)
-                    .split("\n")
-                    .findAll { it.trim().length() > 0 }
-                    .join("\n")
-            }
-        }
-        return leftJustify(text)
-    }
-
-    static String leftJustify(String text) {
-        var lines = text.split("\n")
-        var shift = lines.collect { line ->
-            line.toList().findIndexOf { it != ' ' }
-        }.findAll { it > 0 }.min()
-        if (shift) {
-            lines.collect { it.length() > shift ? it[shift .. -1] : it }.join("\n")
-        } else {
-            text
-        }
-    }
-
-    static void fatalError(Exception ex) {
-        fatalError(ex.getMessage())
-    }
-
-    static void fatalError(String error) {
-        inColor RED, {
-            println(error)
-        }
-        println(ansi().a(Attribute.RESET))
-        AnsiConsole.systemUninstall()
-        System.exit(1)
-    }
-}
-
 class TokenSource {
     final Command command
     String tokenName
@@ -948,25 +789,25 @@ class TokenSource {
 }
 
 @TypeChecked
-public class ApiScriptException extends Exception {
-    ApiScriptException(String what) {
+public class HapiException extends Exception {
+    HapiException(String what) {
         super(what)
     }
 
-    ApiScriptException(String what, Exception cause) {
+    HapiException(String what, Exception cause) {
         super(what, cause)
     }
 }
 
 @TypeChecked
-public class SyntaxError extends ApiScriptException {
+public class SyntaxError extends HapiException {
     SyntaxError(String what) {
         super(what)
     }
 }
 
 @TypeChecked
-public class EvaluationError extends ApiScriptException {
+public class EvaluationError extends HapiException {
     EvaluationError(String what) {
         super(what)
     }
