@@ -1,11 +1,8 @@
-# api-script
+# Hapi
 
-Still trying to find a name.
+## Prerequisites
 
-# Prerequisites
-
-* Groovy 4 in your $PATH.
-
+* Groovy 4 bin directory in your $PATH.
 
 ## Introduction
 
