@@ -31,8 +31,6 @@ script {
         printRequestBody     true
         printResponseBody    true
     }
-
-    // other lines omitted
   }
 ```
 You can configure whether or not request and/or response bodies are printed and whether or not request and/or response headers are printed by setting these boolean settings to `true` or `false`.
@@ -46,7 +44,6 @@ Within your script block you can define requests.
 ```
 script {
   GET simpleGet, "https://httpbin.org/anything"
-  // other lines omitted
 }
 ```
 
@@ -58,7 +55,6 @@ This line defines a request that can be referred to as simpleGet that will perfo
 ```
 script {
   DELETE simpleDelete, "https://httpbin.org/anything"
-  // other lines omitted
 }
 ```
 
@@ -72,7 +68,6 @@ script {
       header 'Content-Type' 'application/json'
       header 'Accept'       'text/css'
   }
-  // other lines omitted
 }
 ```
 
@@ -84,7 +79,6 @@ script {
       param 'cups'       3
       param 'convertTo'  'teaspoons'
   }
-  // other lines omitted
 }
 ```
 
@@ -93,7 +87,6 @@ You could also include the parameters in the URL:
 ```
 script {
   GET getWithParams, "https://httpbin.org/status?cups=3&convertTo=teaspoons"
-  // other lines omitted
 }
 ```
 
@@ -120,7 +113,7 @@ Headers can be combined with query string parameters.
 
 You can specify that a response will provide a value with a specific name.  That value can then be accessed in subsequent requests by enclosing the name in double curly braces (e.g. {{serverName}}`).
 
-## From Response JSON
+## From the Response JSON
 
 ```
 script {
@@ -147,7 +140,7 @@ This request assumes that the response will have a structure similar to the foll
 
 and the `provides "offsets" from json "args.offset[1]"` line says that a value, to be named `offsets` will be found in the response JSON at the specified path.
 
-## From Response Body Text
+## From the Response Body Text
 
 ```
 script {
@@ -157,9 +150,9 @@ script {
 }
 ```
 
-The `provides "text" from responseBody` syntax says that a value, to be named `text` will be set to the entire response body interpreted as text. 
+The `provides "text" from responseBody` syntax says that a value, to be named `text` will be set to the entire response body interpreted as text.
 
-## From Response Header
+## From the Response Header
 
 ```
 script {
@@ -182,7 +175,6 @@ Here is an example of a request that creates a token and a request that requires
 
 ```
 script {
-
   POST acquiresToken, "https://httpbin.org/anything", {
       provides "token" from json "json.token"
       body '''{
@@ -207,7 +199,8 @@ For example:
 
 ```
 script {
-  // other lines omitted
+  // definitions of acquiresToken and requiresToken omitted (see above)
+
   group "tokenTest", [
       acquiresToken,
       requiresToken
@@ -222,13 +215,13 @@ Given this group, you could run all of the requests in the group by passing `tok
 ## Listing available commands
 
 ```
-./apiscript.sh SCRIPT
+./hapi SCRIPT
 ```
 
 ## Executing a group of requests or a sinble request.
 
 ```
-./apiscript.sh SCRIPT GROUP_OR_REQUEST
+./hapi SCRIPT GROUP_OR_REQUEST
 ```
 
 # Sensitive Data
