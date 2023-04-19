@@ -144,7 +144,7 @@ class Statements implements HasStyle {
             println("No commands defined in script.  See README.md for how to define commands.")
         } else {
             println("Available commands:")
-            commands.keySet().each {
+            commands.keySet().sort().each {
                 println(" - ${it}")
             }
         }
