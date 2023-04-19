@@ -10,7 +10,6 @@ import groovy.transform.TypeChecked
 
 import org.fusesource.jansi.Ansi.Color
 import org.fusesource.jansi.AnsiConsole
-
 import static org.fusesource.jansi.Ansi.*
 import static org.fusesource.jansi.Ansi.Color.*
 
@@ -76,6 +75,7 @@ class Terminal {
     }
 }
 
+@TypeChecked
 class Command {
     private final String name
     private RequestDSL request
@@ -105,6 +105,8 @@ class Statements implements HasStyle {
     RequestDSL PUT(Command command, String url, Closure<RequestDSL> c = null) {return request(command, Method.PUT, url, c)}
 
     void printAvailableCommands() {
+        // TODO: After unifying groups and commands, print message if no
+        // commands were found.
         println("Available commands:")
         groups.keySet().each {
             println(" - ${it}")
@@ -128,38 +130,21 @@ class Statements implements HasStyle {
 
     void run(String commandName) {
         if (commandName in commands) {
-            send([commands[commandName].request])
+            runCommand([commands[commandName].request])
         } else if (commandName in groups) {
-            send(groups[commandName].collect{it.request})
+            runCommand(groups[commandName].collect{it.request})
         } else {
             Utilities.fatalError("Could not run '${commandName}'.")
         }
     }
 
-    void send(List<RequestDSL> requests) {
+    void runCommand(List<RequestDSL> requests) {
         try {
             checkDependencies(requests)
             final var dictionary = new Dictionary()
-
             requests.each {
                 if (it.tokenSource) {
-                    final String tokenName = it.tokenSource.tokenName
-                    final Command command = it.tokenSource.command
-                    if (command) {
-                        final RequestDSL request = command.request
-                        if (!dictionary.hasValue(tokenName)) {
-                            final Response tokenResponse = request.sendRequest(dictionary)
-                            dictionary.addSource(
-                                new DictionarySource(request,
-                                                     tokenResponse))
-
-                            if(!dictionary.hasValue(tokenName)) {
-                                throw new EvaluationError(
-                                    "Could not acquire token named '${tokenName}' from " +
-                                        "tokenSource request '${request.url}'.")
-                            }
-                        }
-                    }
+                    ensureToken(it.tokenSource, dictionary)
                 }
                 final Response response = it.sendRequest(dictionary)
                 dictionary.addSource(new DictionarySource(it, response))
@@ -167,6 +152,24 @@ class Statements implements HasStyle {
             }
         } catch (HapiException ex) {
             Utilities.fatalError(ex.getMessage())
+        }
+    }
+
+    private ensureToken(TokenSource tokenSource, Dictionary dictionary) {
+        final String tokenName = tokenSource.tokenName
+        final Command command = tokenSource.command
+        if (command) {
+            final RequestDSL request = command.request
+            if (!dictionary.hasValue(tokenName)) {
+                final Response tokenResponse = request.sendRequest(dictionary)
+                dictionary.addSource(
+                    new DictionarySource(request, tokenResponse))
+                if(!dictionary.hasValue(tokenName)) {
+                    throw new EvaluationError(
+                        "Could not acquire token named '${tokenName}' from " +
+                            "tokenSource request '${request.url}'.")
+                }
+            }
         }
     }
 
@@ -183,6 +186,7 @@ class Statements implements HasStyle {
             var providingRequest = it[0]
             var requiringRequest = it[1]
 
+            // no dependency to check
             if (!requiringRequest)
                 return
 
@@ -210,11 +214,12 @@ class Statements implements HasStyle {
         Method method,
         String url,
         @DelegatesTo(RequestDSL) Closure<RequestDSL> c) {
-        var dsl = new RequestDSL(this, _config, method, url)
+
+        final var dsl = new RequestDSL(this, _config, method, url)
 
         command.request = dsl
         commands[command.name] = command
- 
+
         try {
             if (c) {
                 c.delegate = dsl
@@ -236,7 +241,7 @@ class Statements implements HasStyle {
      */
     Command propertyMissing(String name) {
         if (name in commands) {
-            // Called when defining a Group.
+            // Called when defining a Group and a command is referenced.
             commands[name]
         } else {
             // Called when defining a Request.
@@ -258,18 +263,19 @@ class Statements implements HasStyle {
     }
 }
 
+@TypeChecked
 class RequestDSL implements HasStyle {
     private static HttpClient httpClient = HttpClient.newBuilder() .build()
 
-    private final Config config
     private final Method method
     private final String url
-
     private final List<Tuple2<String, String>> params = new ArrayList<>()
     private final Map<String, String> headers = new TreeMap<>(String.CASE_INSENSITIVE_ORDER)
-    private final Map<String, Provider> providers = [:]
-
     private String body
+
+    private final Map<String, Provider> providers = [:]
+    private final Config config
+
     private TokenSource tokenSource
     private Statements statements
 
@@ -304,28 +310,6 @@ class RequestDSL implements HasStyle {
         TokenSource source = new TokenSource(request)
         tokenSource = source
         return source
-    }
-
-    Response sendRequest(Dictionary dictionary) {
-        var interpolatedParams = params.collect {
-            new Tuple2(it.V1, dictionary.interpolate(it.V2))
-        }
-
-        final def unencodedUrl = url + Utilities.paramsToString(interpolatedParams, false)
-
-        inColor GREEN, {
-            println(">>> ${method} ${unencodedUrl}")
-        }
-
-        HttpRequest request = buildRequest(dictionary);
-        HttpResponse response = null
-        Utilities.timed "\nResponse Latency", {
-            response = httpClient.send(
-                request,
-                HttpResponse.BodyHandlers.ofString()
-            )
-        }
-        createResponse(response)
     }
 
     private HttpRequest buildRequest(Dictionary dictionary) {
@@ -368,6 +352,28 @@ class RequestDSL implements HasStyle {
                        HttpRequest.BodyPublishers.ofString(actualBody))
 
         return builder.build()
+    }
+
+    Response sendRequest(Dictionary dictionary) {
+        var interpolatedParams = params.collect {
+            new Tuple2(it.V1, dictionary.interpolate(it.V2))
+        }
+
+        final def unencodedUrl = url + Utilities.paramsToString(interpolatedParams, false)
+
+        inColor GREEN, {
+            println(">>> ${method} ${unencodedUrl}")
+        }
+
+        HttpRequest request = buildRequest(dictionary);
+        HttpResponse response = null
+        Utilities.timed "\nResponse Latency", {
+            response = httpClient.send(
+                request,
+                HttpResponse.BodyHandlers.ofString()
+            )
+        }
+        createResponse(response)
     }
 
     private Response createResponse(HttpResponse response) {
@@ -495,6 +501,7 @@ class ProviderDispatch {
     }
 }
 
+@TypeChecked
 class DictionarySource {
     RequestDSL request
     Response response
@@ -521,6 +528,7 @@ class DictionarySource {
  * Provides a value from a Response (e.g. a header value,
  * JSON object, etc.)
  */
+@TypeChecked
 class Dictionary {
     List<DictionarySource> sources = []
 
@@ -528,6 +536,8 @@ class Dictionary {
         sources << source
     }
 
+    // TODO: Is reverse() necessary here? It's needed for getValue() to ensure
+    //       that the most recent source's value is used.
     Boolean hasValue(String valueName) {
         for (source in sources.reverse()) {
             var value = source.getValue(valueName)
@@ -585,11 +595,13 @@ class InHeader extends Provider {
 @TypeChecked
 class InJson extends Provider {
 
+    @TypeChecked
     static class PathElement {
         boolean isProperty() { false }
         boolean isArrayIndex() { false }
     }
 
+    @TypeChecked
     static class Property extends PathElement {
         private final String name
         Property(String name) { this.name = name }
@@ -597,6 +609,7 @@ class InJson extends Provider {
         @Override String toString() { name }
     }
 
+    @TypeChecked
     static class ArrayIndex extends PathElement {
         private final int index
         ArrayIndex(int index) { this.index = index }
@@ -625,14 +638,17 @@ class InJson extends Provider {
 
     private String extractJsonValue(List<PathElement> path, Object json) {
         if (path.isEmpty()) {
+            // We have arrived at the JSON element to extract.
             if (json instanceof String || json instanceof Float || json instanceof Boolean) {
                 return json.toString()
             } else {
                 throw new HapiException("found non-scalar at path '${json}'")
             }
         } else {
+            // head specifies the JSON element we're looking for in `json`.
             var head = path.head()
             if (json instanceof Map) {
+                // Look for head key in JSON object.
                 String property = head.toString()
                 var obj = json as Map<String, Object>
                 if (property in obj) {
@@ -641,6 +657,7 @@ class InJson extends Provider {
                     throw new HapiException("key '${property}' not found in json: '${json}'")
                 }
             } else if (json instanceof List) {
+                // Look for head array index in JSON list.
                 List list = json as List
                 if (head.isArrayIndex()) {
                     int index = (head as ArrayIndex).index
@@ -691,9 +708,10 @@ class InJson extends Provider {
 
 @TypeChecked
 class Response {
-    private final String body
     private final int statusCode
+    private final String body
     private final Map<String, String> headers = new TreeMap<>(String.CASE_INSENSITIVE_ORDER)
+    // If the headers contain a 'Content-Type' header, this will be the value of that header.
     private String contentType
 
     Response(int statusCode,
@@ -732,6 +750,9 @@ Body: ${body}"""
     }
 }
 
+/**
+ * Mix-in to provide access to process' environment variables.
+ */
 @TypeChecked
 trait HasEnvironment {
     static String env(String envVarName, String defaultValue = null) {
@@ -739,6 +760,9 @@ trait HasEnvironment {
     }
 }
 
+/**
+ * Adds request headers to the Request when they have a name and a  value.
+ */
 @TypeChecked
 class HeaderDSL implements HasEnvironment {
     String name
@@ -749,6 +773,7 @@ class HeaderDSL implements HasEnvironment {
         this.name = name
     }
 
+    // called with the value of the header
     void propertyMissing(String value) {
         request.headers[name] = value
     }
@@ -758,6 +783,10 @@ class HeaderDSL implements HasEnvironment {
     }
 }
 
+/**
+ * Adds query string parameters to the Request when they have a name and a
+ * value.
+ */
 @TypeChecked
 class ParamDSL implements HasEnvironment {
     String name
@@ -768,22 +797,31 @@ class ParamDSL implements HasEnvironment {
         this.name = name
     }
 
+    // called with the value of the query string parameter
     void propertyMissing(String value) {
         request.params << new Tuple2(name, value)
     }
 }
 
+/**
+ * Used to connect a Request that should provide a token to the Request that
+ * needs the token.
+ */
 @TypeChecked
 class TokenSource {
+    // A Command whose Request should provide a token
     final Command command
+
+    // `command`'s Request should provide a token with this name.
     String tokenName
 
     TokenSource(Command command) {
         this.command = command
     }
 
-    TokenSource propertyMissing(String name) {
-        tokenName = name
+    // Called with the name of the token.
+    TokenSource propertyMissing(String tokenName) {
+        tokenName = tokenName
         return this
     }
 }

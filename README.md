@@ -237,3 +237,9 @@ Given this group, you could run all of the requests in the group by passing `tok
 # Sensitive Data
 
 You can store sensitive data in an environment variable and access it via the `env` function.  It has two overloads.  The first overload takes one parameter, the name of the environment varaible whose value you want to use.  The second overload is like the first but it provides an additional parameter that is the value that should be used if the enironment variable has no value.
+
+
+# To Do
+
+* Config specifies whether or not to follow redirects
+* Make interacting with jq easier (e.g. just output body of last response if argument is given).
