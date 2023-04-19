@@ -7,6 +7,7 @@ import java.util.regex.Matcher
 
 import groovy.json.JsonSlurper
 import groovy.transform.TypeChecked
+import org.codehaus.groovy.runtime.StackTraceUtils 
 
 import org.fusesource.jansi.Ansi.Color
 import org.fusesource.jansi.AnsiConsole
@@ -30,7 +31,7 @@ class Hapi {
     static void script(@DelegatesTo(Statements) Closure<Void> c) {
         Terminal.init()
 
-        var args = getArguments()
+        final var args = getArguments()
 
         var statements = new Statements()
         c.delegate = statements
@@ -42,9 +43,7 @@ class Hapi {
         } else {
             var commandName = args[0]
             if (commandName in statements.commands.keySet()) {
-                statements.run(commandName)
-            } else if (commandName in statements.groups.keySet()) {
-                statements.run(commandName)
+                statements.runCommand(commandName)
             } else {
                 println("Unknown command '${commandName}'")
                 statements.printAvailableCommands()
@@ -76,12 +75,28 @@ class Terminal {
 }
 
 @TypeChecked
-class Command {
-    private final String name
+interface ICommand {
+    String name
+    List<RequestDSL> getRequests()
+}
+
+@TypeChecked
+class Command implements ICommand {
+    final String name
     private RequestDSL request
 
-    Command(String name) {
+    Command(String name, RequestDSL request = null) {
         this.name = name
+        this.request = request
+    }
+
+    @Override
+    List<RequestDSL> getRequests() {
+        request ? [request] : []
+    }
+
+    def setRequest(RequestDSL request) {
+        this.request = request
     }
 
     @Override
@@ -90,12 +105,32 @@ class Command {
     }
 }
 
+class CommandGroup implements ICommand {
+    final String name
+    private List<Command> commands = []
+
+    CommandGroup(String name, List<Command> commands = []) {
+        this.name = name
+        this.commands = commands
+    }
+
+    @Override
+    List<RequestDSL> getRequests() {
+        commands.collect {it.getRequests()}
+    }
+
+    @Override
+    String toString() {
+        return "CommandGroup: ${name} requests: ${commands.collect{it.name}}"
+    }
+}
+
 @TypeChecked
 class Statements implements HasStyle {
-    private Map<String, List<Command>> groups = [:]
-    private Map<String, Command> commands = [:]
+    private Map<String, ICommand> commands = [:]
     private Config _config = new Config()
 
+    // Aesthetic wrappers over `request`.
     RequestDSL DELETE(Command command, String url, Closure<RequestDSL> c = null) {return request(command, Method.DELETE, url, c)}
     RequestDSL GET(Command command, String url, Closure<RequestDSL> c = null) {return request(command, Method.GET, url, c)}
     RequestDSL HEAD(Command command, String url, Closure<RequestDSL> c = null) {return request(command, Method.HEAD, url, c)}
@@ -105,14 +140,13 @@ class Statements implements HasStyle {
     RequestDSL PUT(Command command, String url, Closure<RequestDSL> c = null) {return request(command, Method.PUT, url, c)}
 
     void printAvailableCommands() {
-        // TODO: After unifying groups and commands, print message if no
-        // commands were found.
-        println("Available commands:")
-        groups.keySet().each {
-            println(" - ${it}")
-        }
-        commands.keySet().each {
-            println(" - ${it}")
+        if (commands.isEmpty()) {
+            println("No commands defined in script.  See README.md for how to define commands.")
+        } else {
+            println("Available commands:")
+            commands.keySet().each {
+                println(" - ${it}")
+            }
         }
     }
 
@@ -120,29 +154,30 @@ class Statements implements HasStyle {
         try {
             Utilities.getEnvVar(envVarName, defaultValue)
         } catch (HapiException ex) {
+            // StackTraceUtils.sanitize(ex)
+            // print(ex.stackTrace.head().lineNumber)
             Utilities.fatalError(ex.getMessage())
         }
     }
 
-    void group(String name, List<Command> commands) {
-        groups[name] = commands
+    Statements group(String name, List<Command> commands) {
+        this.commands[name] = new CommandGroup(name, commands)
+        this
     }
 
-    void run(String commandName) {
+    void runCommand(String commandName) {
         if (commandName in commands) {
-            runCommand([commands[commandName].request])
-        } else if (commandName in groups) {
-            runCommand(groups[commandName].collect{it.request})
+            runCommand(commands[commandName])
         } else {
             Utilities.fatalError("Could not run '${commandName}'.")
         }
     }
 
-    void runCommand(List<RequestDSL> requests) {
+    void runCommand(ICommand command) {
         try {
-            checkDependencies(requests)
+            checkDependencies(command.getRequests())
             final var dictionary = new Dictionary()
-            requests.each {
+            command.requests.each {
                 if (it.tokenSource) {
                     ensureToken(it.tokenSource, dictionary)
                 }
@@ -217,7 +252,7 @@ class Statements implements HasStyle {
 
         final var dsl = new RequestDSL(this, _config, method, url)
 
-        command.request = dsl
+        command.setRequest(dsl)
         commands[command.name] = command
 
         try {
@@ -239,7 +274,7 @@ class Statements implements HasStyle {
      * TODO: When we create a new Command, should we add it to the list
      *       of commands?
      */
-    Command propertyMissing(String name) {
+    ICommand propertyMissing(String name) {
         if (name in commands) {
             // Called when defining a Group and a command is referenced.
             commands[name]
@@ -252,9 +287,6 @@ class Statements implements HasStyle {
     @Override
     String toString() {
         var sb = new StringBuffer()
-        groups.each {
-            println("Group: ${it}")
-        }
         commands.each {
             println("Command: ${it}")
         }
@@ -821,7 +853,7 @@ class TokenSource {
 
     // Called with the name of the token.
     TokenSource propertyMissing(String tokenName) {
-        tokenName = tokenName
+        this.tokenName = tokenName
         return this
     }
 }
