@@ -7,7 +7,6 @@ import java.util.regex.Matcher
 
 import groovy.json.JsonSlurper
 import groovy.transform.TypeChecked
-import org.codehaus.groovy.runtime.StackTraceUtils 
 
 import org.fusesource.jansi.Ansi.Color
 import org.fusesource.jansi.AnsiConsole
@@ -105,6 +104,7 @@ class Command implements ICommand {
     }
 }
 
+@TypeChecked
 class CommandGroup implements ICommand {
     final String name
     private List<Command> commands = []
@@ -116,7 +116,7 @@ class CommandGroup implements ICommand {
 
     @Override
     List<RequestDSL> getRequests() {
-        commands.collect {it.getRequests()}
+        commands.collectMany {it.getRequests()}
     }
 
     @Override
@@ -154,8 +154,6 @@ class Statements implements HasStyle {
         try {
             Utilities.getEnvVar(envVarName, defaultValue)
         } catch (HapiException ex) {
-            // StackTraceUtils.sanitize(ex)
-            // print(ex.stackTrace.head().lineNumber)
             Utilities.fatalError(ex.getMessage())
         }
     }
