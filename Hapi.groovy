@@ -31,8 +31,8 @@ class Hapi {
         Terminal.init()
 
         final var args = getArguments()
+        final var statements = new Statements()
 
-        var statements = new Statements()
         c.delegate = statements
         c.resolveStrategy = Closure.DELEGATE_ONLY
         c.call()
@@ -41,7 +41,7 @@ class Hapi {
             statements.printAvailableCommands()
         } else {
             var commandName = args[0]
-            if (commandName in statements.commands.keySet()) {
+            if (commandName in statements.commands) {
                 statements.runCommand(commandName)
             } else {
                 println("Unknown command '${commandName}'")
@@ -127,8 +127,8 @@ class CommandGroup implements ICommand {
 
 @TypeChecked
 class Statements implements HasStyle {
-    private Map<String, ICommand> commands = [:]
     private Config _config = new Config()
+    private Map<String, ICommand> commands = [:]
 
     // Aesthetic wrappers over `request`.
     RequestDSL DELETE(Command command, String url, Closure<RequestDSL> c = null) {return request(command, Method.DELETE, url, c)}
@@ -145,7 +145,7 @@ class Statements implements HasStyle {
         } else {
             println("Available commands:")
             commands.keySet().sort().each {
-                println(" - ${it}")
+                println("  ${it}")
             }
         }
     }
@@ -206,10 +206,11 @@ class Statements implements HasStyle {
         }
     }
 
-    void config(@DelegatesTo(Config) Closure<Void> c) {
+    Statements config(@DelegatesTo(Config) Closure<Void> c) {
         c.delegate = _config
         c.resolveStrategy = Closure.DELEGATE_ONLY
         c.call()
+        this
     }
 
     private static void checkDependencies(List<RequestDSL> requests) {
@@ -306,6 +307,7 @@ class RequestDSL implements HasStyle {
     private final Map<String, Provider> providers = [:]
     private final Config config
 
+    // Currently, each reqeust can only have one dependency.
     private Dependency dependency
     private Statements statements
 
