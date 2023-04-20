@@ -27,25 +27,25 @@ enum Method {
 
 @TypeChecked
 class Hapi {
-    static void script(@DelegatesTo(Statements) Closure<Void> c) {
+    static void script(@DelegatesTo(Script) Closure<Void> c) {
         Terminal.init()
 
         final var args = getArguments()
-        final var statements = new Statements()
+        final var script = new Script()
 
-        c.delegate = statements
+        c.delegate = script
         c.resolveStrategy = Closure.DELEGATE_ONLY
         c.call()
 
         if (args.length == 0) {
-            statements.printAvailableCommands()
+            script.printAvailableCommands()
         } else {
             var commandName = args[0]
-            if (commandName in statements.commands) {
-                statements.runCommand(commandName)
+            if (commandName in script.commands) {
+                script.runCommand(commandName)
             } else {
                 println("Unknown command '${commandName}'")
-                statements.printAvailableCommands()
+                script.printAvailableCommands()
             }
         }
 
@@ -126,7 +126,7 @@ class CommandGroup implements ICommand {
 }
 
 @TypeChecked
-class Statements implements HasStyle {
+class Script implements HasStyle {
     private Config _config = new Config()
     private Map<String, ICommand> commands = [:]
 
@@ -158,7 +158,7 @@ class Statements implements HasStyle {
         }
     }
 
-    Statements group(String name, List<Command> commands) {
+    Script group(String name, List<Command> commands) {
         this.commands[name] = new CommandGroup(name, commands)
         this
     }
@@ -206,7 +206,7 @@ class Statements implements HasStyle {
         }
     }
 
-    Statements config(@DelegatesTo(Config) Closure<Void> c) {
+    Script config(@DelegatesTo(Config) Closure<Void> c) {
         c.delegate = _config
         c.resolveStrategy = Closure.DELEGATE_ONLY
         c.call()
@@ -309,10 +309,10 @@ class RequestDSL implements HasStyle {
 
     // Currently, each reqeust can only have one dependency.
     private Dependency dependency
-    private Statements statements
+    private Script script
 
-    RequestDSL(Statements statements, Config config, Method method, String url) {
-        this.statements = statements
+    RequestDSL(Script script, Config config, Method method, String url) {
+        this.script = script
         this.config = config
         this.method = method
         this.url = url
@@ -419,7 +419,7 @@ class RequestDSL implements HasStyle {
             }
         }
 
-        var result = new Response(response.statusCode(),
+        final var result = new Response(response.statusCode(),
                                   headers,
                                   response.body() as String)
 
@@ -484,8 +484,8 @@ ${body}
         // List of places where values can be retrieved from
         if (name in ["header", "json", "responseBody"])
             return "${name}"
-        if (name in statements.commands.keySet()) {
-            return statements.commands[name]
+        if (name in script.commands.keySet()) {
+            return script.commands[name]
         }
         throw new SyntaxError("Unexpected source '${name}'")
     }
