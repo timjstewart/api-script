@@ -30,10 +30,13 @@ script {
         printResponseHeaders true
         printRequestBody     true
         printResponseBody    true
+        logResponseBody      false
     }
   }
 ```
 You can configure whether or not request and/or response bodies are printed and whether or not request and/or response headers are printed by setting these boolean settings to `true` or `false`.
+
+If logResponseBody is set to true, responses are logged to the logs directory.
 
 # Syntax
 
@@ -165,11 +168,9 @@ script {
 The `provides "serverName" from header "X-Server"` syntax specifies that a value with the name `serverName` will be extracted from a response header named `X-Server`.
 
 
-# Tokens
+# Dependencies
 
-If one or more requests require tokens, you can define an additional request to create a token and specify that it provides that token value given the provides syntax shown above.  
-
-Then you can create other requests that require tokens and specify that those requests can get their token from the request that creates the token using the `tokenSource` syntax.
+If one or more requests require values from other requests, you can specify that dependency via the `dependsOn` statement.
 
 Here is an example of a request that creates a token and a request that requires that token.
 
@@ -184,7 +185,7 @@ script {
 
   GET requiresToken, "https://httpbin.org/get", {
       header      "token" "{{token}}"
-      tokenSource acquiresToken "token"
+      dependsOn   acquiresToken "token"
   }
 }
 ```
@@ -228,8 +229,6 @@ Given this group, you could run all of the requests in the group by passing `tok
 
 You can store sensitive data in an environment variable and access it via the `env` function.  It has two overloads.  The first overload takes one parameter, the name of the environment varaible whose value you want to use.  The second overload is like the first but it provides an additional parameter that is the value that should be used if the enironment variable has no value.
 
-
 # To Do
 
 * Config specifies whether or not to follow redirects
-* Make interacting with jq easier (e.g. just output body of last response if argument is given).

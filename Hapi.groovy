@@ -129,7 +129,7 @@ class Script implements HasStyle {
     private Config _config = new Config()
     private Map<String, ICommand> commands = [:]
 
-    // Aesthetic wrappers over `request`.
+    // Aesthetic wrappers over `Script.request()`.
     RequestDSL DELETE(Command command, String url, Closure<RequestDSL> c = null) {return request(command, Method.DELETE, url, c)}
     RequestDSL GET(Command command, String url, Closure<RequestDSL> c = null) {return request(command, Method.GET, url, c)}
     RequestDSL HEAD(Command command, String url, Closure<RequestDSL> c = null) {return request(command, Method.HEAD, url, c)}
@@ -179,12 +179,26 @@ class Script implements HasStyle {
                     ensureDependency(it.dependency, dictionary)
                 }
                 final Response response = it.sendRequest(dictionary)
+                if (_config.logResponseBody()) {
+                    logResponse(command, response)
+                }
                 dictionary.addSource(new DictionarySource(it, response))
                 println()
             }
         } catch (HapiException ex) {
             Utilities.fatalError(ex.getMessage())
         }
+    }
+
+    private static void logResponse(final ICommand command, final Response response) {
+        final var logDirectory = new File("logs")
+        logDirectory.mkdir()
+
+        final Date date = new Date()
+        final String stamp = date.format("YYYYMMdd-HHmmssMs")
+
+        final var logFile = new File(logDirectory, "${command.name}-${stamp}.json")
+        logFile << response.body
     }
 
     private ensureDependency(Dependency dependency, Dictionary dictionary) {
@@ -295,7 +309,7 @@ class Script implements HasStyle {
 
 @TypeChecked
 class RequestDSL implements HasStyle {
-    private static HttpClient httpClient = HttpClient.newBuilder() .build()
+    private static HttpClient httpClient = HttpClient.newBuilder().build()
 
     private final Method method
     private final String url

@@ -9,6 +9,7 @@ script {
         printResponseHeaders true
         printRequestBody     true
         printResponseBody    true
+        logResponseBody    true
     }
 
     POST req1, "http://httpbin.org/anything", {

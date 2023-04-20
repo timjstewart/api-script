@@ -5,6 +5,7 @@ class Config {
     boolean _printResponseHeaders = true
     boolean _printRequestBody = true
     boolean _printResponseBody = true
+    boolean _logResponseBody = false
 
     Object methodMissing(String name, Object args) {
         Utilities.fatalError("Config does not have a setting named '${name}'.")
@@ -26,6 +27,10 @@ class Config {
         _printResponseBody = flag
     }
 
+    void logResponseBody(boolean flag) {
+        _logResponseBody = flag
+    }
+
     boolean printRequestHeaders() {
         _printRequestHeaders
     }
@@ -40,5 +45,9 @@ class Config {
 
     boolean printResponseBody() {
         _printResponseBody
+    }
+
+    boolean logResponseBody() {
+        _logResponseBody
     }
 }
