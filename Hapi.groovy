@@ -191,7 +191,7 @@ class Script implements HasStyle {
     }
 
     private static void logResponse(final ICommand command, final Response response) {
-        final var logDirectory = new File("logs")
+        final var logDirectory = new File("hapi-logs")
         logDirectory.mkdir()
 
         final Date date = new Date()

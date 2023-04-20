@@ -36,7 +36,7 @@ script {
 ```
 You can configure whether or not request and/or response bodies are printed and whether or not request and/or response headers are printed by setting these boolean settings to `true` or `false`.
 
-If logResponseBody is set to true, responses are logged to the logs directory.
+If logResponseBody is set to true, responses are logged to the `hapi-logs` directory.
 
 # Syntax
 
@@ -227,7 +227,7 @@ Given this group, you could run all of the requests in the group by passing `tok
 
 # Sensitive Data
 
-You can store sensitive data in an environment variable and access it via the `env` function.  It has two overloads.  The first overload takes one parameter, the name of the environment varaible whose value you want to use.  The second overload is like the first but it provides an additional parameter that is the value that should be used if the enironment variable has no value.
+You can store sensitive data in an environment variable and access it via the `env` function.  The `env` function has two overloads.  The first overload takes one parameter, the name of the environment varaible whose value you want to use.  The second overload is like the first but it provides an additional parameter that is the value that should be used if the enironment variable has no value.
 
 # To Do
 
