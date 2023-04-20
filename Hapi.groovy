@@ -2,8 +2,6 @@ import java.net.http.HttpClient
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
 import java.time.Duration
-import java.util.regex.Pattern
-import java.util.regex.Matcher
 
 import groovy.json.JsonSlurper
 import groovy.transform.TypeChecked
@@ -14,6 +12,7 @@ import static org.fusesource.jansi.Ansi.*
 import static org.fusesource.jansi.Ansi.Color.*
 
 import static Utilities.*
+import static Json.*
 
 enum Method {
     HEAD,
@@ -625,39 +624,17 @@ class InHeader extends Provider {
 @TypeChecked
 class InJson extends Provider {
 
-    @TypeChecked
-    static class PathElement {
-        boolean isProperty() { false }
-        boolean isArrayIndex() { false }
-    }
-
-    @TypeChecked
-    static class Property extends PathElement {
-        private final String name
-        Property(String name) { this.name = name }
-        boolean isProperty() { true }
-        @Override String toString() { name }
-    }
-
-    @TypeChecked
-    static class ArrayIndex extends PathElement {
-        private final int index
-        ArrayIndex(int index) { this.index = index }
-        boolean isArrayIndex() { true }
-        @Override String toString() { index.toString() }
-    }
-
-    final List<PathElement> jsonPath
+    final String jsonPath
 
     InJson(String jsonPath) {
-        this.jsonPath = parseJsonPath(jsonPath)
+        this.jsonPath = jsonPath 
     }
 
     String provideValueFrom(Response response) {
         if (response.isJson()) {
             try {
                 var json = response.toJson()
-                extractJsonValue(jsonPath, json)
+                Json.find(jsonPath, json)
             } catch (HapiException ex) {
                 throw new HapiException("could not find JSON value at path " +
                                         "'${jsonPath}'.  ${ex.getMessage()}", ex)
@@ -666,76 +643,6 @@ class InJson extends Provider {
             throw new HapiException("could not find JSON value at path '${jsonPath}' " +
                                     "in non-JSON body: '${response.toString()}'")
         }
-    }
-
-    private String extractJsonValue(List<PathElement> path, Object json) {
-        if (path.isEmpty()) {
-            // We have arrived at the JSON element to extract.
-            if (json instanceof String || json instanceof Float || json instanceof Boolean) {
-                return json.toString()
-            } else {
-                throw new HapiException("found non-scalar at path '${json}'")
-            }
-        } else {
-            // head specifies the JSON element we're looking for in `json`.
-            var head = path.head()
-            if (json instanceof Map) {
-                // Look for head key in JSON object.
-                String property = head.toString()
-                var obj = json as Map<String, Object>
-                if (property in obj) {
-                    extractJsonValue(path.tail(), obj[property]) 
-                } else {
-                    throw new HapiException("key '${property}' not found in json: '${json}'")
-                }
-            } else if (json instanceof List) {
-                // Look for head array index in JSON list.
-                List list = json as List
-                if (head.isArrayIndex()) {
-                    int index = (head as ArrayIndex).index
-                    if (index < list.size()) {
-                        return extractJsonValue(path.tail(), json[index])
-                    } else {
-                        throw new HapiException("Array ${json} only has ${list.size()} elements in " +
-                                                "it but element at index ${index} was requested.")
-                    }
-                } else {
-                    throw new HapiException("Javascript value '${head}' is not a valid array index for '${json}'.")
-                }
-            } else {
-                throw new HapiException("key '${head}' not found in non-object: '${json}'")
-            }
-        }
-    }
-
-    /**
-     * Given a String like "name", returns ["name"].
-     * Given a String like "name[3]", returns ["name", 3].
-     * Given a String like "[3]", returns [3].
-     */
-    static private List<PathElement> tokenize(String s) {
-        final Pattern pattern = Pattern.compile(/(\w+)?\[(\d+)\]/)
-        final Matcher m = s =~ pattern
-        if (m.matches()) {
-            if (m.group(1)) {
-                [
-                    new Property(m.group(1)),
-                    new ArrayIndex(m.group(2).toInteger())
-                ]
-            } else {
-                [
-                    new ArrayIndex(m.group(2).toInteger())
-                ]
-            }
-        } else {
-            [
-                new Property(s)
-            ]
-        }
-    }
-
-    static List<PathElement> parseJsonPath(String path) {
-        path.split(/\./).collectMany{tokenize(it)}
     }
 }
 
