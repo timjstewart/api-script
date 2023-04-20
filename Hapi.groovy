@@ -176,8 +176,8 @@ class Statements implements HasStyle {
             checkDependencies(command.getRequests())
             final var dictionary = new Dictionary()
             command.requests.each {
-                if (it.tokenSource) {
-                    ensureToken(it.tokenSource, dictionary)
+                if (it.dependency) {
+                    ensureDependency(it.dependency, dictionary)
                 }
                 final Response response = it.sendRequest(dictionary)
                 dictionary.addSource(new DictionarySource(it, response))
@@ -188,19 +188,19 @@ class Statements implements HasStyle {
         }
     }
 
-    private ensureToken(TokenSource tokenSource, Dictionary dictionary) {
-        final String tokenName = tokenSource.tokenName
-        final Command command = tokenSource.command
+    private ensureDependency(Dependency dependency, Dictionary dictionary) {
+        final String valueName = dependency.valueName
+        final Command command = dependency.dependsOn
         if (command) {
             final RequestDSL request = command.request
-            if (!dictionary.hasValue(tokenName)) {
+            if (!dictionary.hasValue(valueName)) {
                 final Response tokenResponse = request.sendRequest(dictionary)
                 dictionary.addSource(
                     new DictionarySource(request, tokenResponse))
-                if(!dictionary.hasValue(tokenName)) {
+                if(!dictionary.hasValue(valueName)) {
                     throw new EvaluationError(
-                        "Could not acquire token named '${tokenName}' from " +
-                            "tokenSource request '${request.url}'.")
+                        "Could not acquire token named '${valueName}' from " +
+                            "dependency request '${request.url}'.")
                 }
             }
         }
@@ -227,9 +227,9 @@ class Statements implements HasStyle {
                 providingRequest.providers.keySet()
             )
 
-            if (requiringRequest.tokenSource) {
+            if (requiringRequest.dependency) {
                 providedValues.addAll(
-                    requiringRequest.tokenSource.command.request.providers.keySet()
+                    requiringRequest.dependency.dependsOn.request.providers.keySet()
                 )
             }
 
@@ -306,7 +306,7 @@ class RequestDSL implements HasStyle {
     private final Map<String, Provider> providers = [:]
     private final Config config
 
-    private TokenSource tokenSource
+    private Dependency dependency
     private Statements statements
 
     RequestDSL(Statements statements, Config config, Method method, String url) {
@@ -336,9 +336,9 @@ class RequestDSL implements HasStyle {
         "${url} - ${providers.keySet()}"
     }
 
-    TokenSource tokenSource(Command request) {
-        TokenSource source = new TokenSource(request)
-        tokenSource = source
+    Dependency dependsOn(Command request) {
+        Dependency source = new Dependency(request)
+        this.dependency = source
         return source
     }
 
@@ -566,10 +566,8 @@ class Dictionary {
         sources << source
     }
 
-    // TODO: Is reverse() necessary here? It's needed for getValue() to ensure
-    //       that the most recent source's value is used.
     Boolean hasValue(String valueName) {
-        for (source in sources.reverse()) {
+        for (source in sources) {
             var value = source.getValue(valueName)
             if (value) {
                 return true
@@ -585,9 +583,9 @@ class Dictionary {
                 return value
             }
         }
-        throw new HapiException("Value dependency check failed. " +
-                                     "Could not find value '${valueName}' in the " +
-                                     "following requests: ${sources.reverse()}")
+        throw new HapiException("Dependency check failed. " +
+                                "Could not find value named '${valueName}' in the " +
+                                "following dependencies: ${sources.reverse()}")
     }
 
     String interpolate(String text) {
@@ -659,10 +657,12 @@ class InJson extends Provider {
                 var json = response.toJson()
                 extractJsonValue(jsonPath, json)
             } catch (HapiException ex) {
-                throw new HapiException("could not find JSON value at path '${jsonPath}'.  ${ex.getMessage()}", ex)
+                throw new HapiException("could not find JSON value at path " +
+                                        "'${jsonPath}'.  ${ex.getMessage()}", ex)
             }
         } else {
-            throw new HapiException("could not find JSON value at path '${jsonPath}' in non-JSON body: '${response.toString()}'")
+            throw new HapiException("could not find JSON value at path '${jsonPath}' " +
+                                    "in non-JSON body: '${response.toString()}'")
         }
     }
 
@@ -694,10 +694,11 @@ class InJson extends Provider {
                     if (index < list.size()) {
                         return extractJsonValue(path.tail(), json[index])
                     } else {
-                        throw new HapiException("array ${json} only has ${list.size()} elements in it but element at index ${index} was requested.")
+                        throw new HapiException("Array ${json} only has ${list.size()} elements in " +
+                                                "it but element at index ${index} was requested.")
                     }
                 } else {
-                    throw new HapiException("${head} is not a valid array index for '${json}'.")
+                    throw new HapiException("Javascript value '${head}' is not a valid array index for '${json}'.")
                 }
             } else {
                 throw new HapiException("key '${head}' not found in non-object: '${json}'")
@@ -838,20 +839,20 @@ class ParamDSL implements HasEnvironment {
  * needs the token.
  */
 @TypeChecked
-class TokenSource {
+class Dependency {
     // A Command whose Request should provide a token
-    final Command command
+    final Command dependsOn
 
     // `command`'s Request should provide a token with this name.
-    String tokenName
+    String valueName
 
-    TokenSource(Command command) {
-        this.command = command
+    Dependency(Command dependsOn) {
+        this.dependsOn = dependsOn
     }
 
     // Called with the name of the token.
-    TokenSource propertyMissing(String tokenName) {
-        this.tokenName = tokenName
+    Dependency propertyMissing(String valueName) {
+        this.valueName = valueName
         return this
     }
 }
