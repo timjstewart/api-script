@@ -3,6 +3,7 @@
 ## Prerequisites
 
 * Groovy 4 bin directory in your $PATH.
+- Run `grape install org.fusesource.jansi jansi 2.4.0` to install the Jansi library for font coloring.
 
 ## Introduction
 
