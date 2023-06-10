@@ -72,7 +72,7 @@ script {
 
     GET requiresToken, "https://httpbin.org/get", {
         header    "token" "{{token}}"
-        dependsOn acquiresToken "token"
+        requires acquiresToken "token"
     }
 
     GET jsonParameter, "https://httpbin.org/get", {
