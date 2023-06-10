@@ -151,7 +151,7 @@ class Command extends ICommand {
 
     @Override
     String toString() {
-        return "Command: ${name} hasRequest: ${request != null}"
+        "Command: ${name} hasRequest: ${request != null}"
     }
 }
 
@@ -172,7 +172,7 @@ class CommandGroup extends ICommand {
 
     @Override
     String toString() {
-        return "CommandGroup: ${name} requests: ${commands.collect{it.name}}"
+        "CommandGroup: ${name} requests: ${commands.collect{it.name}}"
     }
 }
 
@@ -339,8 +339,7 @@ class Script implements HasStyle {
         commands.each {
             println("Command: ${it}")
         }
-
-        return sb.toString()
+        sb.toString()
     }
 }
 
@@ -380,8 +379,12 @@ class RequestDSL implements HasStyle {
         this.body = body
     }
 
+    List<String> provides() {
+        providers.keySet().toList()
+    }
+
     Provider getProvider(String valueName) {
-        return providers[valueName]
+        providers[valueName]
     }
 
     String describeProviders() {
@@ -391,7 +394,7 @@ class RequestDSL implements HasStyle {
     Dependency requires(Command request) {
         Dependency source = new Dependency(request)
         this.dependency = source
-        return source
+        source
     }
 
     private HttpRequest buildRequest(Dictionary dictionary) {
@@ -435,7 +438,7 @@ class RequestDSL implements HasStyle {
         builder.method(method.toString(),
                        HttpRequest.BodyPublishers.ofString(actualBody))
 
-        return builder.build()
+        builder.build()
     }
 
     Response sendRequest(Dictionary dictionary) {
@@ -499,7 +502,7 @@ class RequestDSL implements HasStyle {
 
     @Override
     String toString() {
-        return """${method} ${url}${Utilities.paramsToString(params)}
+        """${method} ${url}${Utilities.paramsToString(params)}
 ${Utilities.headersToString(headers)}
 ${body}
 """
@@ -742,14 +745,11 @@ class Response {
     }
 
     Object toJson() {
-        if (body) {
-            return new JsonSlurper().parseText(body)
-        }
-        return null
+        body ? new JsonSlurper().parseText(body) : null
     }
 
     boolean isJson() {
-        return contentType.startsWith("application/json")
+        contentType.startsWith("application/json")
     }
 
     String formattedBody() {
@@ -758,7 +758,7 @@ class Response {
 
     @Override
     String toString() {
-        return """Status Code: ${statusCode}
+        """Status Code: ${statusCode}
 Headers: ${Utilities.headersToString(headers)}
 Body: ${body}"""
     }
@@ -836,7 +836,11 @@ class Dependency {
     // Called with the name of the value.
     Dependency propertyMissing(String valueName) {
         this.valueName = valueName
-        return this
+        this
+    }
+
+    RequestDSL request() {
+        dependsOn.request
     }
 }
 
