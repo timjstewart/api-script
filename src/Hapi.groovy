@@ -14,6 +14,9 @@ import static org.fusesource.jansi.Ansi.Color.*
 import static Utilities.*
 import static Json.*
 
+/**
+ * Supported HTTP Methods
+ */
 enum Method {
     HEAD,
     GET,
@@ -26,11 +29,23 @@ enum Method {
 
 @TypeChecked
 class Hapi {
+    /**
+     * Defines a script block that contains configuration, requests, and groups
+     * of requests.
+     */
     static void script(@DelegatesTo(Script) Closure<Void> c) {
         Terminal.init()
 
         final var args = getArguments()
         final var script = new Script()
+
+        args.drop(1).each {
+            var tokens = it.tokenize("=")
+            if (tokens.size() == 2) {
+                script.defineVariable(
+                    tokens[0].trim(), tokens[1].trim())
+            }
+        }
 
         c.delegate = script
         c.resolveStrategy = Closure.DELEGATE_ONLY
@@ -73,13 +88,50 @@ class Terminal {
 }
 
 @TypeChecked
-interface ICommand {
+abstract class ICommand {
     String name
-    List<RequestDSL> getRequests()
+
+    abstract List<RequestDSL> getRequests()
+
+    void checkDependencies() {
+        var providedValues = new HashSet<String>()
+
+        // Check each Request's individual dependencies.
+        getRequests().each {
+            it.checkDependencies()
+        }
+
+        // Check dependencies that flow from one Request to the next.
+        getRequests().collate(2, 1).each {
+            var providingRequest = it[0]
+            var requiringRequest = it[1]
+
+            // no dependency to check
+            if (!requiringRequest)
+                return
+
+            providedValues.addAll(
+                providingRequest.providers.keySet()
+            )
+
+            if (requiringRequest.dependency) {
+                providedValues.addAll(
+                    requiringRequest.dependency.dependsOn.request.providers.keySet()
+                )
+            }
+
+            requiringRequest.valueReferences().each {
+                if (!(it in providedValues)) {
+                    throw new HapiException(
+                        "'${it}' was not found in provided values: ${providedValues.join(', ')}")
+                }
+            }
+        }
+    }
 }
 
 @TypeChecked
-class Command implements ICommand {
+class Command extends ICommand {
     final String name
     private RequestDSL request
 
@@ -104,7 +156,7 @@ class Command implements ICommand {
 }
 
 @TypeChecked
-class CommandGroup implements ICommand {
+class CommandGroup extends ICommand {
     final String name
     private List<Command> commands = []
 
@@ -128,6 +180,7 @@ class CommandGroup implements ICommand {
 class Script implements HasStyle {
     private Config _config = new Config()
     private Map<String, ICommand> commands = [:]
+    private Map<String, String> variables = [:]
 
     // Aesthetic wrappers over `Script.request()`.
     RequestDSL DELETE(Command command, String url, Closure<RequestDSL> c = null) {return request(command, Method.DELETE, url, c)}
@@ -149,11 +202,19 @@ class Script implements HasStyle {
         }
     }
 
+    void defineVariable(String name, String value) {
+        variables[name] = value
+    }
+
     String env(String envVarName, String defaultValue = null) {
-        try {
-            Utilities.getEnvVar(envVarName, defaultValue)
-        } catch (HapiException ex) {
-            Utilities.fatalError(ex.getMessage())
+        if (variables.containsKey(envVarName)) {
+            variables[envVarName]
+        } else {
+            try {
+                Utilities.getEnvVar(envVarName, defaultValue)
+            } catch (HapiException ex) {
+                Utilities.fatalError(ex.getMessage())
+            }
         }
     }
 
@@ -172,12 +233,15 @@ class Script implements HasStyle {
 
     void runCommand(ICommand command) {
         try {
-            checkDependencies(command.getRequests())
+            command.checkDependencies()
+
             final var dictionary = new Dictionary()
+
             command.requests.each {
                 if (it.dependency) {
                     ensureDependency(it.dependency, dictionary)
                 }
+
                 final Response response = it.sendRequest(dictionary)
                 if (_config.logResponseBody()) {
                     logResponse(command, response)
@@ -206,13 +270,16 @@ class Script implements HasStyle {
         final Command command = dependency.dependsOn
         if (command) {
             final RequestDSL request = command.request
+            if (request.dependency) {
+                ensureDependency(request.dependency, dictionary)
+            }
             if (!dictionary.hasValue(valueName)) {
-                final Response tokenResponse = request.sendRequest(dictionary)
+                final Response valueResponse = request.sendRequest(dictionary)
                 dictionary.addSource(
-                    new DictionarySource(request, tokenResponse))
+                    new DictionarySource(request, valueResponse))
                 if(!dictionary.hasValue(valueName)) {
                     throw new EvaluationError(
-                        "Could not acquire token named '${valueName}' from " +
+                        "Could not acquire value named '${valueName}' from " +
                             "dependency request '${request.url}'.")
                 }
             }
@@ -224,36 +291,6 @@ class Script implements HasStyle {
         c.resolveStrategy = Closure.DELEGATE_ONLY
         c.call()
         this
-    }
-
-    private static void checkDependencies(List<RequestDSL> requests) {
-        var providedValues = new HashSet<String>()
-
-        requests.collate(2, 1).each {
-            var providingRequest = it[0]
-            var requiringRequest = it[1]
-
-            // no dependency to check
-            if (!requiringRequest)
-                return
-
-            providedValues.addAll(
-                providingRequest.providers.keySet()
-            )
-
-            if (requiringRequest.dependency) {
-                providedValues.addAll(
-                    requiringRequest.dependency.dependsOn.request.providers.keySet()
-                )
-            }
-
-            requiringRequest.valueReferences().each {
-                if (!(it in providedValues)) {
-                    throw new HapiException(
-                        "'${it}' was not found in provided values: ${providedValues.join(', ')}")
-                }
-            }
-        }
     }
 
     private RequestDSL request(
@@ -320,7 +357,7 @@ class RequestDSL implements HasStyle {
     private final Map<String, Provider> providers = [:]
     private final Config config
 
-    // Currently, each reqeust can only have one dependency.
+    // Currently, each request can only have one dependency.
     private Dependency dependency
     private Script script
 
@@ -351,7 +388,7 @@ class RequestDSL implements HasStyle {
         "${url} - ${providers.keySet()}"
     }
 
-    Dependency dependsOn(Command request) {
+    Dependency requires(Command request) {
         Dependency source = new Dependency(request)
         this.dependency = source
         return source
@@ -362,7 +399,9 @@ class RequestDSL implements HasStyle {
             new Tuple2(it.V1, dictionary.interpolate(it.V2))
         }
 
-        final String fullUrl = "${url}${Utilities.paramsToString(interpolatedParams)}"
+        final String interpolatedUrl = dictionary.interpolate(url)
+
+        final String fullUrl = "${interpolatedUrl}${Utilities.paramsToString(interpolatedParams)}"
 
         var builder = HttpRequest.newBuilder()
             .uri(URI.create(fullUrl))
@@ -404,7 +443,7 @@ class RequestDSL implements HasStyle {
             new Tuple2(it.V1, dictionary.interpolate(it.V2))
         }
 
-        final def unencodedUrl = url + Utilities.paramsToString(interpolatedParams, false)
+        final def unencodedUrl = dictionary.interpolate(url) + Utilities.paramsToString(interpolatedParams, false)
 
         inColor GREEN, {
             println(">>> ${method} ${unencodedUrl}")
@@ -508,6 +547,22 @@ ${body}
         refs.addAll(Utilities.findValueReferences(url))
         refs
     }
+
+    void checkDependencies() {
+        if (dependency) {
+            final Command command = dependency.dependsOn
+            final dependencyRequests = command.requests
+            final valueName = dependency.valueName
+            final fulfillingRequest = dependencyRequests.find(req ->
+                req.getProvider(valueName) != null)
+            if (fulfillingRequest) {
+                fulfillingRequest.checkDependencies();
+            } else {
+                throw new HapiException(
+                    "Request: '${this}' depends on command: '${dependency.dependsOn.name}' for value: '${valueName}' which was not provided by the command.")
+            }
+        }
+    }
 }
 
 /**
@@ -608,6 +663,11 @@ class Dictionary {
             String valueName = m[1] as String
             getValue(valueName)
         })
+    }
+
+    @Override
+    String toString() {
+        "Sources: ${sources}"
     }
 }
 
@@ -758,22 +818,22 @@ class ParamDSL implements HasEnvironment {
 }
 
 /**
- * Used to connect a Request that should provide a token to the Request that
- * needs the token.
+ * Used to connect a Request that should provide a value to the Request that
+ * needs the value.
  */
 @TypeChecked
 class Dependency {
-    // A Command whose Request should provide a token
+    // A Command whose Request should provide a value
     final Command dependsOn
 
-    // `command`'s Request should provide a token with this name.
+    // Command's Request should provide a value with this name.
     String valueName
 
     Dependency(Command dependsOn) {
         this.dependsOn = dependsOn
     }
 
-    // Called with the name of the token.
+    // Called with the name of the value.
     Dependency propertyMissing(String valueName) {
         this.valueName = valueName
         return this

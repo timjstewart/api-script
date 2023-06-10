@@ -1,3 +1,4 @@
 /dist-newstyle/
 *.class
 /hapi-logs/
+/.envrc

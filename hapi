@@ -1,10 +1,10 @@
 #! /usr/bin/env bash
 
 if [ "$#" = "0" ] ; then
-    >&2 echo "usage: $(basename $0) SCRIPT ARGS"
+    >&2 echo "usage: $(basename "$0") SCRIPT COMMAND [ARG...]"
     exit 1
 fi
 
-# See https://superuser.com/a/585696/127480 for technique to 
+# See https://superuser.com/a/585696/127480 for technique to
 # suppress "Picked up _JAVA_OPTIONS:" message.
-groovy -cp "$(dirname "$0")/lib" $* 2> >(grep -v "^Picked up _JAVA_OPTIONS:" >&2)
+groovy -cp "$(dirname "$0")/lib" "$@" 2> >(grep -v "^Picked up _JAVA_OPTIONS:" >&2)

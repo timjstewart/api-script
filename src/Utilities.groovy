@@ -73,7 +73,6 @@ class Utilities implements HasStyle {
                 throw new EvaluationError("Environment Variable '${name}' not set.")
             }
         } else {
-            println("Environment variable '${name}' found.")
             value
         }
     }
